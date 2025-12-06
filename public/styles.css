@@ -22,6 +22,12 @@
   box-sizing: border-box;
 }
 
+html {
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -33,6 +39,7 @@ body {
   min-height: 100vh;
   user-select: none;
   -webkit-overflow-scrolling: touch;
+  position: relative;
 }
 
 /* Screen Management */
@@ -47,6 +54,10 @@ body {
 .screen.active {
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-height: 100vh;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* ========== LOGIN SCREEN ========== */
@@ -279,13 +290,15 @@ body {
 
 /* Control Area */
 .control-area {
-  flex: 1;
+  flex: 1 1 auto;
   display: grid;
   grid-template-columns: 350px 1fr;
   gap: 2rem;
   padding: 2rem;
   overflow-y: auto;
+  overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
+  min-height: 0; /* Critical for flexbox scrolling */
 }
 
 .panel {
@@ -674,8 +687,10 @@ body {
   }
   
   .control-area {
+    grid-template-columns: 1fr;
     padding: 1rem;
     gap: 1rem;
+    overflow-y: auto;
   }
   
   .panel {
