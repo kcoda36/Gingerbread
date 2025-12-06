@@ -330,7 +330,8 @@ class ESP32Controller {
     right = Math.max(-1, Math.min(1, right));
     
     // Smooth transition (exponential moving average)
-    const smoothing = 0.3;
+    // Higher smoothing = faster response (0.8 = 80% of target value each update)
+    const smoothing = 0.8;
     this.currentLeft = this.currentLeft * (1 - smoothing) + left * smoothing;
     this.currentRight = this.currentRight * (1 - smoothing) + right * smoothing;
     
