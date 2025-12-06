@@ -1117,9 +1117,42 @@ body {
   border-radius: 8px;
 }
 
+/* Autonomous Info Banner */
+.autonomous-info-banner {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  background: linear-gradient(135deg, rgba(0, 212, 255, 0.1), rgba(138, 43, 226, 0.1));
+  border: 2px solid rgba(0, 212, 255, 0.3);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 212, 255, 0.2);
+}
+
+.autonomous-info-banner .info-icon {
+  font-size: 3rem;
+  flex-shrink: 0;
+}
+
+.autonomous-info-banner .info-content h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--accent-primary);
+  letter-spacing: 0.05em;
+}
+
+.autonomous-info-banner .info-content p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
 /* Autonomous Controls */
 .autonomous-controls {
-  margin-top: 1.5rem;
+  margin-top: 0;
   padding: 1.5rem;
   background: linear-gradient(135deg, rgba(138, 43, 226, 0.1), rgba(75, 0, 130, 0.1));
   border: 2px solid rgba(138, 43, 226, 0.3);
@@ -1302,6 +1335,25 @@ body {
   
   .camera-hint {
     font-size: 0.75rem;
+  }
+  
+  .autonomous-info-banner {
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1rem;
+    text-align: center;
+  }
+  
+  .autonomous-info-banner .info-icon {
+    font-size: 2.5rem;
+  }
+  
+  .autonomous-info-banner .info-content h4 {
+    font-size: 0.95rem;
+  }
+  
+  .autonomous-info-banner .info-content p {
+    font-size: 0.8rem;
   }
   
   .autonomous-controls {

@@ -224,53 +224,20 @@
       </div>
     </div>
 
-    <!-- Gingerbread Tracking Overlay -->
+    <!-- Gingerbread Autonomous Control Overlay -->
     <div id="gingerbread-overlay" class="camera-overlay">
       <div class="camera-container">
         <div class="camera-header">
-          <h3>🍪 GINGERBREAD TRACKING</h3>
+          <h3>🍪 AUTONOMOUS GINGERBREAD TRACKING</h3>
           <button id="close-gingerbread-btn" class="btn-close">✕</button>
         </div>
         
-        <div class="camera-viewport">
-          <video id="gingerbread-video" autoplay playsinline></video>
-          <canvas id="gingerbread-canvas"></canvas>
-          
-          <!-- Target overlay -->
-          <div class="camera-target">
-            <div class="zone zone-left">
-              <span class="zone-label">← LEFT</span>
-            </div>
-            <div class="center-line"></div>
-            <div class="deadzone-box">
-            </div>
-            <div class="zone zone-right">
-              <span class="zone-label">RIGHT →</span>
-            </div>
+        <div class="autonomous-info-banner">
+          <div class="info-icon">🤖</div>
+          <div class="info-content">
+            <h4>Server-Side Autonomous Tracking</h4>
+            <p>Camera processing runs on the server using Python + OpenCV. A popup window on the server will show live detection and tracking.</p>
           </div>
-        </div>
-        
-        <div class="camera-status">
-          <div class="status-item">
-            <span class="label">GINGERBREAD DETECTED</span>
-            <span class="value" id="gingerbread-status">NO</span>
-          </div>
-          <div class="status-item">
-            <span class="label">BLOB SIZE</span>
-            <span class="value" id="blob-size">0</span>
-          </div>
-          <div class="status-item">
-            <span class="label">POSITION</span>
-            <span class="value" id="gingerbread-position">---</span>
-          </div>
-          <div class="status-item">
-            <span class="label">COMMAND</span>
-            <span class="value" id="gingerbread-command">STOP</span>
-          </div>
-        </div>
-        
-        <div class="camera-hint">
-          🍪 Hold GINGERBREAD in view • Move LEFT/RIGHT to steer • Robot follows the gingerbread!
         </div>
         
         <!-- Autonomous Controls -->

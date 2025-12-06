@@ -20,13 +20,8 @@ class ESP32Controller {
     this.hands = null;
     this.camera = null;
     
-    // Gingerbread tracking state
+    // Gingerbread autonomous mode state
     this.gingerbreadMode = false;
-    this.gingerbreadPosition = 0;
-    this.gingerbreadDetected = false;
-    this.gingerbreadStream = null;
-    this.gingerbreadAnimationFrame = null;
-    this.blobSize = 0;
     
     // Deadzone configuration (30% width in center, 40% height in center)
     this.deadzoneWidth = 0.30;
@@ -284,33 +279,8 @@ class ESP32Controller {
     let throttle = 0;
     let turn = 0;
     
-    if (this.gingerbreadMode) {
-      // Gingerbread tracking mode
-      if (this.gingerbreadDetected) {
-        const deadzoneMin = -this.deadzoneWidth / 2;
-        const deadzoneMax = this.deadzoneWidth / 2;
-        
-        if (this.gingerbreadPosition < deadzoneMin) {
-          // Left zone - turn left
-          turn = -1 * Math.abs((this.gingerbreadPosition - deadzoneMin) / (0.5 - this.deadzoneWidth / 2));
-          turn = Math.max(-1, turn);
-          throttle = 0.5; // Forward speed
-        } else if (this.gingerbreadPosition > deadzoneMax) {
-          // Right zone - turn right
-          turn = Math.abs((this.gingerbreadPosition - deadzoneMax) / (0.5 - this.deadzoneWidth / 2));
-          turn = Math.min(1, turn);
-          throttle = 0.5; // Forward speed
-        } else {
-          // Deadzone - go straight
-          turn = 0;
-          throttle = 0.5; // Forward speed
-        }
-      } else {
-        // No gingerbread detected - stop
-        throttle = 0;
-        turn = 0;
-      }
-    } else if (this.cameraMode) {
+    // Gingerbread mode now uses Python autonomous - no browser control
+    if (this.cameraMode) {
       // Camera control mode
       if (this.handDetected && this.fistClosed) {
         // Only drive if fist is closed
@@ -827,11 +797,11 @@ class ESP32Controller {
     }
   }
   
-  // Gingerbread Mode
-  async toggleGingerbreadMode() {
+  // Gingerbread Autonomous Mode
+  toggleGingerbreadMode() {
     // Close hand mode if open
     if (this.cameraMode) {
-      await this.toggleCameraMode();
+      this.toggleCameraMode();
     }
     
     this.gingerbreadMode = !this.gingerbreadMode;
@@ -841,261 +811,12 @@ class ESP32Controller {
     if (this.gingerbreadMode) {
       btn.classList.add('active');
       overlay.classList.add('active');
-      await this.startGingerbreadTracking();
     } else {
       btn.classList.remove('active');
       overlay.classList.remove('active');
-      this.stopGingerbreadTracking();
+      // Stop autonomous mode if running
+      this.stopAutonomous();
     }
-  }
-  
-  async startGingerbreadTracking() {
-    try {
-      // Request camera access
-      this.gingerbreadStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          facingMode: 'user'
-        }
-      });
-      
-      const video = document.getElementById('gingerbread-video');
-      video.srcObject = this.gingerbreadStream;
-      
-      // Wait for video to be ready
-      await new Promise(resolve => {
-        video.onloadedmetadata = () => {
-          video.play();
-          resolve();
-        };
-      });
-      
-      // Start processing loop
-      this.processGingerbreadFrame();
-      
-      console.log('🍪 Gingerbread tracking started');
-    } catch (error) {
-      console.error('Camera access error:', error);
-      alert('Unable to access camera. Please allow camera permissions.');
-      this.toggleGingerbreadMode();
-    }
-  }
-  
-  stopGingerbreadTracking() {
-    if (this.gingerbreadAnimationFrame) {
-      cancelAnimationFrame(this.gingerbreadAnimationFrame);
-      this.gingerbreadAnimationFrame = null;
-    }
-    
-    if (this.gingerbreadStream) {
-      this.gingerbreadStream.getTracks().forEach(track => track.stop());
-      this.gingerbreadStream = null;
-    }
-    
-    this.gingerbreadDetected = false;
-    this.gingerbreadPosition = 0;
-    this.blobSize = 0;
-    
-    console.log('🍪 Gingerbread tracking stopped');
-  }
-  
-  processGingerbreadFrame() {
-    if (!this.gingerbreadMode) return;
-    
-    const video = document.getElementById('gingerbread-video');
-    const canvas = document.getElementById('gingerbread-canvas');
-    const ctx = canvas.getContext('2d');
-    
-    // Set canvas size to match video display
-    const rect = video.getBoundingClientRect();
-    canvas.width = rect.width;
-    canvas.height = rect.height;
-    
-    // Draw video frame to canvas
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    
-    // Get image data
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-    
-    // Detect brown pixels and find largest blob
-    const brownMask = new Uint8Array(canvas.width * canvas.height);
-    
-    // Pass 1: Detect brown pixels
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      
-      // Check if pixel is brown (gingerbread color)
-      if (this.isBrown(r, g, b)) {
-        brownMask[i / 4] = 1;
-      }
-    }
-    
-    // Find largest connected blob
-    const blob = this.findLargestBlob(brownMask, canvas.width, canvas.height);
-    
-    // Clear canvas and redraw
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    
-    if (blob && blob.size > 500) { // Minimum size threshold
-      this.gingerbreadDetected = true;
-      this.blobSize = blob.size;
-      
-      // Calculate position relative to center
-      this.gingerbreadPosition = (blob.centerX / canvas.width) - 0.5;
-      
-      // Draw blob outline
-      ctx.strokeStyle = '#00ff88';
-      ctx.lineWidth = 3;
-      ctx.strokeRect(blob.minX, blob.minY, blob.maxX - blob.minX, blob.maxY - blob.minY);
-      
-      // Draw center crosshair
-      ctx.fillStyle = '#00ff88';
-      ctx.beginPath();
-      ctx.arc(blob.centerX, blob.centerY, 10, 0, 2 * Math.PI);
-      ctx.fill();
-      
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(blob.centerX - 15, blob.centerY);
-      ctx.lineTo(blob.centerX + 15, blob.centerY);
-      ctx.moveTo(blob.centerX, blob.centerY - 15);
-      ctx.lineTo(blob.centerX, blob.centerY + 15);
-      ctx.stroke();
-      
-      // Update UI
-      document.getElementById('gingerbread-status').textContent = 'YES';
-      document.getElementById('gingerbread-status').style.color = 'var(--success)';
-      document.getElementById('blob-size').textContent = blob.size;
-      document.getElementById('gingerbread-position').textContent = this.gingerbreadPosition.toFixed(3);
-      
-      // Update zones
-      const deadzoneMin = -this.deadzoneWidth / 2;
-      const deadzoneMax = this.deadzoneWidth / 2;
-      let command = 'STOP';
-      
-      document.querySelectorAll('#gingerbread-overlay .zone').forEach(z => z.classList.remove('active'));
-      
-      if (this.gingerbreadPosition < deadzoneMin) {
-        command = '← TURN LEFT';
-        document.querySelector('#gingerbread-overlay .zone-left').classList.add('active');
-      } else if (this.gingerbreadPosition > deadzoneMax) {
-        command = 'TURN RIGHT →';
-        document.querySelector('#gingerbread-overlay .zone-right').classList.add('active');
-      } else {
-        command = '↑ FORWARD';
-      }
-      
-      document.getElementById('gingerbread-command').textContent = command;
-      
-    } else {
-      this.gingerbreadDetected = false;
-      this.blobSize = 0;
-      
-      document.getElementById('gingerbread-status').textContent = 'NO';
-      document.getElementById('gingerbread-status').style.color = 'var(--text-secondary)';
-      document.getElementById('blob-size').textContent = '0';
-      document.getElementById('gingerbread-position').textContent = '---';
-      document.getElementById('gingerbread-command').textContent = 'STOP';
-      
-      document.querySelectorAll('#gingerbread-overlay .zone').forEach(z => z.classList.remove('active'));
-    }
-    
-    // Continue processing
-    this.gingerbreadAnimationFrame = requestAnimationFrame(() => this.processGingerbreadFrame());
-  }
-  
-  isBrown(r, g, b) {
-    // Brown detection: looking for gingerbread color
-    // Brown is: red-dominant, with moderate green, low blue
-    // Typical gingerbread: RGB around (139, 90, 43) to (210, 150, 90)
-    
-    // Must be somewhat red
-    if (r < 80) return false;
-    
-    // Red should be dominant
-    if (r < g || r < b) return false;
-    
-    // Green should be moderate (not too high, not too low)
-    if (g < 40 || g > r * 0.85) return false;
-    
-    // Blue should be lowest
-    if (b > g || b > r * 0.6) return false;
-    
-    // Check overall brightness (not too dark, not too bright)
-    const brightness = (r + g + b) / 3;
-    if (brightness < 60 || brightness > 180) return false;
-    
-    return true;
-  }
-  
-  findLargestBlob(mask, width, height) {
-    const visited = new Uint8Array(width * height);
-    let largestBlob = null;
-    let largestSize = 0;
-    
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const idx = y * width + x;
-        
-        if (mask[idx] === 1 && visited[idx] === 0) {
-          // Start flood fill
-          const blob = this.floodFill(mask, visited, x, y, width, height);
-          
-          if (blob.size > largestSize) {
-            largestSize = blob.size;
-            largestBlob = blob;
-          }
-        }
-      }
-    }
-    
-    return largestBlob;
-  }
-  
-  floodFill(mask, visited, startX, startY, width, height) {
-    const stack = [[startX, startY]];
-    let size = 0;
-    let sumX = 0, sumY = 0;
-    let minX = width, maxX = 0, minY = height, maxY = 0;
-    
-    while (stack.length > 0) {
-      const [x, y] = stack.pop();
-      const idx = y * width + x;
-      
-      if (x < 0 || x >= width || y < 0 || y >= height) continue;
-      if (visited[idx] === 1 || mask[idx] === 0) continue;
-      
-      visited[idx] = 1;
-      size++;
-      sumX += x;
-      sumY += y;
-      
-      minX = Math.min(minX, x);
-      maxX = Math.max(maxX, x);
-      minY = Math.min(minY, y);
-      maxY = Math.max(maxY, y);
-      
-      // Add neighbors
-      stack.push([x + 1, y]);
-      stack.push([x - 1, y]);
-      stack.push([x, y + 1]);
-      stack.push([x, y - 1]);
-    }
-    
-    return {
-      size,
-      centerX: sumX / size,
-      centerY: sumY / size,
-      minX,
-      maxX,
-      minY,
-      maxY
-    };
   }
   
   send(data) {
