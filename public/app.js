@@ -366,6 +366,11 @@ class ESP32Controller {
     this.send({ type: 'stop' });
     this.updateButtonStates();
     
+    // Kill autonomous mode if it's running
+    if (this.gingerbreadMode) {
+      this.stopAutonomous();
+    }
+    
     // Visual feedback
     const btn = document.getElementById('stop-btn');
     btn.style.transform = 'scale(0.9)';
