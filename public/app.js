@@ -278,10 +278,15 @@ class ESP32Controller {
   computeAndSendControl() {
     if (!this.connected) return;
     
+    // CRITICAL: Skip ALL control when gingerbread mode is active
+    // Python autonomous script has FULL control of ESP32
+    if (this.gingerbreadMode) {
+      return; // Don't send ANY commands - Python is in control!
+    }
+    
     let throttle = 0;
     let turn = 0;
     
-    // Gingerbread mode now uses Python autonomous - no browser control
     if (this.cameraMode) {
       // Camera control mode
       if (this.handDetected && this.fistClosed) {
