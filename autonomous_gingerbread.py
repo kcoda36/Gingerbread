@@ -10,6 +10,7 @@ import socket
 import time
 import argparse
 import sys
+import select
 from dataclasses import dataclass
 from enum import Enum
 
@@ -48,16 +49,21 @@ class AutonomousGingerbreadController:
         print("Camera initialized successfully")
         
         # Control parameters
-        self.deadzone_radius = 0.10  # 10% deadzone radius from center
-        self.search_speed = 0.35  # Rotation speed when searching
-        self.track_speed = 0.5  # Forward speed when tracking
-        self.turn_gain = 1.2  # How aggressively to turn (higher = more responsive)
+        self.deadzone_radius = 0.15  # 15% deadzone radius from center (increased from 10%)
+        self.min_turn_threshold = 0.15  # Minimum turn amount to actually turn (prevents jitter)
+        self.search_speed = 0.4  # Rotation speed when searching
+        self.track_speed = 0.6  # Forward speed when tracking
+        self.turn_gain = 1.5  # How aggressively to turn (higher = more responsive)
         
         # State
         self.mode = Mode.STOPPED
         self.last_detection_time = 0
         self.detection_timeout = 2.0  # seconds
         self.running = True
+        
+        # Position smoothing (exponential moving average)
+        self.smoothed_x = None
+        self.smoothing_factor = 0.3  # 0 = no smoothing, 1 = instant
         
         print(f"Connected to ESP32 at {esp32_ip}:{udp_port}")
         
@@ -85,51 +91,63 @@ class AutonomousGingerbreadController:
         """Track detected gingerbread with differential steering based on distance from center"""
         if not blob.detected:
             self.stop()
+            self.smoothed_x = None  # Reset smoothing when no detection
             return
             
         # Get frame dimensions
         frame_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        frame_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        
+        # Apply smoothing to blob position to reduce jitter
+        if self.smoothed_x is None:
+            self.smoothed_x = blob.center_x
+        else:
+            self.smoothed_x = (self.smoothing_factor * blob.center_x + 
+                             (1 - self.smoothing_factor) * self.smoothed_x)
         
         # Calculate center of frame
         center_x = frame_width / 2.0
-        center_y = frame_height / 2.0
         
         # Calculate horizontal distance from center (normalized -1 to 1)
-        # Positive = right of center, Negative = left of center
-        dx = (blob.center_x - center_x) / center_x
+        # Use smoothed position to reduce jitter
+        dx = (self.smoothed_x - center_x) / center_x
         
-        # Calculate absolute distance from center (for deadzone check)
+        # Calculate absolute distance from center
         distance = abs(dx)
         
-        # Deadzone: if within deadzone radius, go straight
+        # Deadzone: if within deadzone radius, go straight (NO turning at all)
         if distance <= self.deadzone_radius:
-            # Dead center - go straight forward
+            # Dead center - go straight forward, no adjustments
             self.send_command(self.track_speed, self.track_speed)
+            return
+        
+        # Outside deadzone - calculate turn amount
+        # Remove deadzone offset to make turning smooth
+        adjusted_distance = (distance - self.deadzone_radius) / (1.0 - self.deadzone_radius)
+        
+        # Calculate turn amount (proportional to distance from center)
+        turn = self.turn_gain * adjusted_distance
+        turn = min(1.0, turn)  # Clamp to max turn rate
+        
+        # Apply minimum turn threshold - if turn is too small, ignore it (go straight)
+        if turn < self.min_turn_threshold:
+            self.send_command(self.track_speed, self.track_speed)
+            return
+        
+        # Apply turn direction
+        if dx > 0:
+            # Target is right of center - turn right
+            left = self.track_speed + turn
+            right = self.track_speed - turn
         else:
-            # Outside deadzone - turn proportional to distance
-            # Remove deadzone offset to make turning smooth
-            adjusted_distance = (distance - self.deadzone_radius) / (1.0 - self.deadzone_radius)
-            
-            # Calculate turn amount (proportional to distance from center)
-            turn = self.turn_gain * adjusted_distance
-            turn = min(1.0, turn)  # Clamp to max turn rate
-            
-            # Apply turn direction
-            if dx > 0:
-                # Target is right of center - turn right
-                left = self.track_speed + turn
-                right = self.track_speed - turn
-            else:
-                # Target is left of center - turn left
-                left = self.track_speed - turn
-                right = self.track_speed + turn
-            
-            # Clamp motor speeds to [-1, 1]
-            left = max(-1.0, min(1.0, left))
-            right = max(-1.0, min(1.0, right))
-            
-            self.send_command(left, right)
+            # Target is left of center - turn left
+            left = self.track_speed - turn
+            right = self.track_speed + turn
+        
+        # Clamp motor speeds to [-1, 1]
+        left = max(-1.0, min(1.0, left))
+        right = max(-1.0, min(1.0, right))
+        
+        self.send_command(left, right)
             
     def detect_gingerbread(self, frame):
         """Detect brown gingerbread blob in frame"""
@@ -192,7 +210,7 @@ class AutonomousGingerbreadController:
         center_x = width // 2
         center_y = height // 2
         
-        # Calculate deadzone radius in pixels
+        # Calculate zone radii in pixels
         deadzone_radius_px = int(width * self.deadzone_radius)
         
         # Draw center crosshair (screen center)
@@ -200,13 +218,15 @@ class AutonomousGingerbreadController:
         cv2.line(frame, (center_x, center_y - 30), (center_x, center_y + 30), (0, 255, 0), 3)
         cv2.circle(frame, (center_x, center_y), 8, (0, 255, 0), -1)
         
-        # Draw deadzone circle (centered on frame center)
+        # Draw deadzone circle (green - goes straight)
         overlay = frame.copy()
-        cv2.circle(overlay, (center_x, center_y), deadzone_radius_px, (0, 212, 255), -1)
-        cv2.addWeighted(overlay, 0.2, frame, 0.8, 0, frame)
+        cv2.circle(overlay, (center_x, center_y), deadzone_radius_px, (0, 255, 0), -1)
+        cv2.addWeighted(overlay, 0.15, frame, 0.85, 0, frame)
+        cv2.circle(frame, (center_x, center_y), deadzone_radius_px, (0, 255, 0), 3)
         
-        # Draw deadzone border
-        cv2.circle(frame, (center_x, center_y), deadzone_radius_px, (0, 212, 255), 3)
+        # Add text label for deadzone
+        cv2.putText(frame, "DEADZONE", (center_x - 50, center_y), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         
         # Draw center vertical line for reference
         cv2.line(frame, (center_x, 0), (center_x, height), (0, 255, 0), 2)
@@ -227,11 +247,25 @@ class AutonomousGingerbreadController:
             dy = blob_y - center_y
             distance_from_center = np.sqrt(dx*dx + dy*dy)
             
-            # Choose color based on deadzone
+            # Calculate turn amount for display
+            dx_norm = (blob_x - center_x) / center_x
+            distance_norm = abs(dx_norm)
+            
+            # Determine status
             if distance_from_center <= deadzone_radius_px:
                 color = (0, 255, 0)  # Green - in deadzone (go straight)
+                status = "STRAIGHT"
             else:
-                color = (0, 255, 255)  # Yellow - outside deadzone (turning)
+                # Check if turn would be applied
+                adjusted_dist = (distance_norm - self.deadzone_radius) / (1.0 - self.deadzone_radius)
+                turn_amount = self.turn_gain * adjusted_dist
+                
+                if turn_amount < self.min_turn_threshold:
+                    color = (0, 255, 255)  # Yellow - outside deadzone but below turn threshold
+                    status = "STRAIGHT (below threshold)"
+                else:
+                    color = (255, 0, 255)  # Magenta - actively turning
+                    status = "TURNING"
             
             # Draw actual bounding box around detected blob
             cv2.rectangle(frame,
@@ -264,12 +298,13 @@ class AutonomousGingerbreadController:
             
             # Calculate horizontal offset from center (normalized)
             offset_x = (blob_x - center_x) / center_x
-            direction = "CENTER" if distance_from_center <= deadzone_radius_px else ("RIGHT" if offset_x > 0 else "LEFT")
+            direction = "RIGHT" if offset_x > 0 else "LEFT"
             
-            # Status text - detected
-            status_text = f"DETECTED | {direction} | Offset: {offset_x:.2f}"
-            cv2.rectangle(frame, (5, 5), (550, 60), (0, 255, 0), -1)
-            cv2.rectangle(frame, (5, 5), (550, 60), (255, 255, 255), 2)
+            # Status text - detected with action
+            status_text = f"DETECTED | {status} | {direction} {abs(offset_x):.2f}"
+            text_width = 700
+            cv2.rectangle(frame, (5, 5), (text_width, 60), (0, 255, 0), -1)
+            cv2.rectangle(frame, (5, 5), (text_width, 60), (255, 255, 255), 2)
             cv2.putText(frame, status_text, 
                        (15, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
         else:
@@ -293,15 +328,47 @@ class AutonomousGingerbreadController:
         
         return frame
         
+    def check_stdin_command(self):
+        """Check for mode change commands from stdin (non-blocking)"""
+        if sys.platform == 'win32':
+            # Windows doesn't support select on stdin
+            return
+        
+        # Check if there's input available (non-blocking)
+        if select.select([sys.stdin], [], [], 0)[0]:
+            try:
+                line = sys.stdin.readline().strip()
+                if line:
+                    print(f"📨 Received command: {line}")
+                    
+                    if line == 'STOP':
+                        self.mode = Mode.STOPPED
+                        print("🛑 Switching to STOP mode")
+                    elif line == 'SEARCH_LEFT':
+                        self.mode = Mode.SEARCH_LEFT
+                        print("🔄 Switching to SEARCH LEFT mode")
+                    elif line == 'SEARCH_RIGHT':
+                        self.mode = Mode.SEARCH_RIGHT
+                        print("🔃 Switching to SEARCH RIGHT mode")
+                    elif line == 'TRACK':
+                        self.mode = Mode.TRACK
+                        print("🎯 Switching to TRACK mode")
+            except Exception as e:
+                print(f"⚠️  Error reading stdin: {e}")
+    
     def run(self, initial_mode):
         """Main control loop"""
         self.mode = Mode[initial_mode.upper()]
         print(f"🤖 Starting autonomous mode: {self.mode.value}")
         print(f"🍪 ESP32 IP: {self.esp32_ip}")
         print("=" * 60)
+        print("💡 Mode can be changed from web UI or keyboard")
+        print("=" * 60)
         
         try:
             while self.running:
+                # Check for mode change commands from stdin
+                self.check_stdin_command()
                 ret, frame = self.cap.read()
                 if not ret:
                     print("❌ Failed to grab frame")
@@ -337,12 +404,15 @@ class AutonomousGingerbreadController:
                         if time.time() - self.last_detection_time > self.detection_timeout:
                             print("⚠️  Lost target! Switching to SEARCH_LEFT")
                             self.mode = Mode.SEARCH_LEFT
+                            self.smoothed_x = None  # Reset smoothing
                         else:
-                            # Keep moving forward briefly
-                            self.send_command(0.3, 0.3)
+                            # Keep previous command briefly (momentum)
+                            pass
                             
                 elif self.mode == Mode.STOPPED:
+                    # STOP mode - actively send stop commands
                     self.stop()
+                    self.smoothed_x = None  # Reset smoothing
                     
                 # Draw overlay and display
                 display_frame = self.draw_overlay(frame.copy(), blob)

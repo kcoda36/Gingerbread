@@ -31,12 +31,11 @@ let pythonProcess = null;
 let pythonRunning = false;
 
 function startPythonAutonomous(mode, esp32IP) {
-  // Kill existing process if running
-  if (pythonProcess) {
-    console.log('⚠️  Stopping existing autonomous process...');
-    pythonProcess.kill('SIGTERM');
-    pythonProcess = null;
-    pythonRunning = false;
+  // If process already running, just change mode
+  if (pythonProcess && pythonRunning) {
+    console.log(`🔄 Changing mode to: ${mode}`);
+    changePythonMode(mode);
+    return;
   }
   
   console.log(`🤖 Starting autonomous mode: ${mode}`);
@@ -94,6 +93,24 @@ function startPythonAutonomous(mode, esp32IP) {
     mode: mode,
     running: true
   });
+}
+
+function changePythonMode(mode) {
+  if (pythonProcess && pythonRunning) {
+    // Send mode change command via stdin
+    const modeCommand = mode.toUpperCase() + '\n';
+    console.log(`📤 Sending mode change: ${mode}`);
+    pythonProcess.stdin.write(modeCommand);
+    
+    broadcastToClients({
+      type: 'autonomous_mode_changed',
+      mode: mode,
+      running: true
+    });
+    
+    return true;
+  }
+  return false;
 }
 
 function stopPythonAutonomous() {
@@ -193,7 +210,7 @@ wss.on('connection', (ws) => {
           break;
           
         case 'start_autonomous':
-          // Start autonomous mode
+          // Start autonomous mode or change mode
           if (!esp32IP) {
             ws.send(JSON.stringify({ 
               type: 'error', 
@@ -211,8 +228,27 @@ wss.on('connection', (ws) => {
           }));
           break;
           
+        case 'change_mode':
+          // Change mode of running process
+          if (!pythonRunning) {
+            ws.send(JSON.stringify({ 
+              type: 'error', 
+              message: 'No autonomous process running' 
+            }));
+            break;
+          }
+          
+          const newMode = data.mode || 'stopped';
+          changePythonMode(newMode);
+          ws.send(JSON.stringify({ 
+            type: 'autonomous_ack', 
+            mode: newMode,
+            running: true 
+          }));
+          break;
+          
         case 'stop_autonomous':
-          // Stop autonomous mode
+          // Stop autonomous mode (kill process)
           const stopped = stopPythonAutonomous();
           ws.send(JSON.stringify({ 
             type: 'autonomous_ack', 

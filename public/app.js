@@ -146,9 +146,10 @@ class ESP32Controller {
         this.updateStatus('error', 'ERROR');
       }
       
-      if (data.type === 'autonomous_started' || data.type === 'autonomous_ack') {
+      if (data.type === 'autonomous_started' || data.type === 'autonomous_ack' || data.type === 'autonomous_mode_changed') {
         if (data.running) {
-          this.updateAutonomousStatus(`RUNNING: ${data.mode || 'active'}`, true);
+          const displayMode = (data.mode || 'active').toUpperCase().replace('_', ' ');
+          this.updateAutonomousStatus(displayMode, true);
         } else {
           this.updateAutonomousStatus('INACTIVE', false);
         }
@@ -833,24 +834,39 @@ class ESP32Controller {
       return;
     }
     
-    console.log(`🤖 Starting autonomous mode: ${mode}`);
+    console.log(`🤖 Switching to autonomous mode: ${mode}`);
+    
+    // Send as mode change (will start if not running, or change mode if running)
     this.send({
       type: 'start_autonomous',
       mode: mode
     });
     
     // Visual feedback
-    this.updateAutonomousStatus(`Starting ${mode}...`, true);
+    this.updateAutonomousStatus(`Mode: ${mode}`, true);
   }
   
   stopAutonomous() {
-    console.log('🛑 Stopping autonomous mode');
+    console.log('🛑 Stopping motors (STOP mode)');
+    
+    // Send STOP mode instead of killing process
+    this.send({
+      type: 'start_autonomous',
+      mode: 'stopped'
+    });
+    
+    // Visual feedback
+    this.updateAutonomousStatus('Mode: STOPPED', true);
+  }
+  
+  killAutonomous() {
+    console.log('🛑 Killing autonomous process');
     this.send({
       type: 'stop_autonomous'
     });
     
     // Visual feedback
-    this.updateAutonomousStatus('Stopping...', false);
+    this.updateAutonomousStatus('Process stopped', false);
   }
   
   updateAutonomousStatus(text, isActive) {
