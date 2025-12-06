@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>EEZY • ESP32 Controller</title>
+  <link rel="stylesheet" href="styles.css">
+  <!-- MediaPipe Hands -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+<body>
+  <!-- Login Screen -->
+  <div id="login-screen" class="screen active">
+    <div class="login-container">
+      <div class="logo">
+        <div class="logo-icon">⚡</div>
+        <h1>EEZY CONTROL</h1>
+        <div class="logo-subtitle">ESP32 REMOTE INTERFACE</div>
+      </div>
+      
+      <div class="login-form">
+        <div class="form-group">
+          <label for="esp32-ip">ESP32 IP ADDRESS</label>
+          <input 
+            type="text" 
+            id="esp32-ip" 
+            placeholder="192.168.0.26"
+            value="192.168.0.26"
+            autocomplete="off"
+          >
+        </div>
+        <button id="connect-btn" class="btn-primary">
+          <span class="btn-text">INITIATE CONNECTION</span>
+          <span class="btn-icon">→</span>
+        </button>
+      </div>
+      
+      <div class="system-info">
+        <div class="info-item">
+          <span class="label">PROTOCOL</span>
+          <span class="value">WebSocket → UDP</span>
+        </div>
+        <div class="info-item">
+          <span class="label">FREQUENCY</span>
+          <span class="value">50 Hz</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Control Screen -->
+  <div id="control-screen" class="screen">
+    <!-- Header -->
+    <div class="header">
+      <div class="header-left">
+        <div class="logo-small">⚡ EEZY</div>
+        <div class="connection-status">
+          <span class="status-indicator" id="status-indicator"></span>
+          <span id="status-text">CONNECTING...</span>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="telemetry-item">
+          <span class="label">ESP32</span>
+          <span class="value" id="esp32-ip-display">---</span>
+        </div>
+        <button id="camera-mode-btn" class="btn-secondary">
+          📷 HAND MODE
+        </button>
+        <button id="gingerbread-mode-btn" class="btn-secondary">
+          🍪 GINGERBREAD
+        </button>
+        <button id="fullscreen-btn" class="btn-secondary">
+          <span class="fullscreen-icon">⛶</span>
+        </button>
+        <button id="disconnect-btn" class="btn-secondary">DISCONNECT</button>
+      </div>
+    </div>
+
+    <!-- Main Control Area -->
+    <div class="control-area">
+      <!-- Left Panel: Telemetry -->
+      <div class="panel telemetry-panel">
+        <h2 class="panel-title">TELEMETRY</h2>
+        
+        <div class="telemetry-grid">
+          <div class="telemetry-card">
+            <div class="telemetry-label">LEFT MOTOR</div>
+            <div class="telemetry-value" id="left-value">0.000</div>
+            <div class="telemetry-bar">
+              <div class="telemetry-bar-fill" id="left-bar"></div>
+            </div>
+          </div>
+          
+          <div class="telemetry-card">
+            <div class="telemetry-label">RIGHT MOTOR</div>
+            <div class="telemetry-value" id="right-value">0.000</div>
+            <div class="telemetry-bar">
+              <div class="telemetry-bar-fill" id="right-bar"></div>
+            </div>
+          </div>
+          
+          <div class="telemetry-card">
+            <div class="telemetry-label">SEND RATE</div>
+            <div class="telemetry-value" id="send-rate">0 Hz</div>
+          </div>
+          
+          <div class="telemetry-card">
+            <div class="telemetry-label">PACKETS SENT</div>
+            <div class="telemetry-value" id="packet-count">0</div>
+          </div>
+          
+          <div class="telemetry-card">
+            <div class="telemetry-label">RELAY (PIN 13)</div>
+            <div class="telemetry-value" id="relay-status">---</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Center Panel: Controls -->
+      <div class="panel control-panel">
+        <h2 class="panel-title">DRIVE CONTROL</h2>
+        
+        <div class="control-grid">
+          <!-- Direction Keypad -->
+          <div class="keypad">
+            <button class="key-btn key-up" data-key="up">
+              <span class="key-icon">▲</span>
+              <span class="key-label">FORWARD</span>
+            </button>
+            <button class="key-btn key-down" data-key="down">
+              <span class="key-icon">▼</span>
+              <span class="key-label">REVERSE</span>
+            </button>
+            <button class="key-btn key-left" data-key="left">
+              <span class="key-icon">◄</span>
+              <span class="key-label">LEFT</span>
+            </button>
+            <button class="key-btn key-right" data-key="right">
+              <span class="key-icon">►</span>
+              <span class="key-label">RIGHT</span>
+            </button>
+          </div>
+
+          <!-- Fire Button -->
+          <div class="fire-container">
+            <button id="fire-btn" class="fire-btn">
+              <div class="fire-btn-inner">
+                <span class="fire-icon">🔥</span>
+                <span class="fire-label">FIRE</span>
+                <span class="fire-sublabel">RELAY PIN 13</span>
+              </div>
+              <div class="fire-glow"></div>
+            </button>
+          </div>
+
+          <!-- Emergency Stop -->
+          <div class="stop-container">
+            <button id="stop-btn" class="stop-btn">
+              <span class="stop-icon">⬛</span>
+              <span class="stop-label">EMERGENCY STOP</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="keyboard-hint">
+          <span>⌨️ KEYBOARD: ↑↓←→ or WASD • SPACE = STOP • F = FIRE</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Hand Tracking Overlay -->
+    <div id="camera-overlay" class="camera-overlay">
+      <div class="camera-container">
+        <div class="camera-header">
+          <h3>👋 HAND TRACKING CONTROL</h3>
+          <button id="close-camera-btn" class="btn-close">✕</button>
+        </div>
+        
+        <div class="camera-viewport">
+          <video id="camera-video" autoplay playsinline></video>
+          <canvas id="camera-canvas"></canvas>
+          
+          <!-- Target overlay -->
+          <div class="camera-target">
+            <div class="zone zone-left">
+              <span class="zone-label">← LEFT</span>
+            </div>
+            <div class="center-line"></div>
+            <div class="deadzone-box">
+              <span class="deadzone-label">CENTER<br>DEADZONE</span>
+            </div>
+            <div class="zone zone-right">
+              <span class="zone-label">RIGHT →</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="camera-status">
+          <div class="status-item">
+            <span class="label">HAND DETECTED</span>
+            <span class="value" id="hand-status">NO</span>
+          </div>
+          <div class="status-item">
+            <span class="label">FIST CLOSED</span>
+            <span class="value" id="fist-status">NO</span>
+          </div>
+          <div class="status-item">
+            <span class="label">POSITION</span>
+            <span class="value" id="hand-position">---</span>
+          </div>
+          <div class="status-item">
+            <span class="label">COMMAND</span>
+            <span class="value" id="hand-command">STOP</span>
+          </div>
+        </div>
+        
+        <div class="camera-hint">
+          👊 CLOSE FIST to drive forward • Move hand LEFT/RIGHT to steer • Open hand or CENTER to stop
+        </div>
+      </div>
+    </div>
+
+    <!-- Gingerbread Tracking Overlay -->
+    <div id="gingerbread-overlay" class="camera-overlay">
+      <div class="camera-container">
+        <div class="camera-header">
+          <h3>🍪 GINGERBREAD TRACKING</h3>
+          <button id="close-gingerbread-btn" class="btn-close">✕</button>
+        </div>
+        
+        <div class="camera-viewport">
+          <video id="gingerbread-video" autoplay playsinline></video>
+          <canvas id="gingerbread-canvas"></canvas>
+          
+          <!-- Target overlay -->
+          <div class="camera-target">
+            <div class="zone zone-left">
+              <span class="zone-label">← LEFT</span>
+            </div>
+            <div class="center-line"></div>
+            <div class="deadzone-box">
+              <span class="deadzone-label">CENTER<br>DEADZONE</span>
+            </div>
+            <div class="zone zone-right">
+              <span class="zone-label">RIGHT →</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="camera-status">
+          <div class="status-item">
+            <span class="label">GINGERBREAD DETECTED</span>
+            <span class="value" id="gingerbread-status">NO</span>
+          </div>
+          <div class="status-item">
+            <span class="label">BLOB SIZE</span>
+            <span class="value" id="blob-size">0</span>
+          </div>
+          <div class="status-item">
+            <span class="label">POSITION</span>
+            <span class="value" id="gingerbread-position">---</span>
+          </div>
+          <div class="status-item">
+            <span class="label">COMMAND</span>
+            <span class="value" id="gingerbread-command">STOP</span>
+          </div>
+        </div>
+        
+        <div class="camera-hint">
+          🍪 Hold GINGERBREAD in view • Move LEFT/RIGHT to steer • Robot follows the gingerbread!
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
+

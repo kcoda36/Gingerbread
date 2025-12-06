@@ -1,0 +1,17 @@
+{
+  "name": "eezy-esp32-controller",
+  "version": "1.0.0",
+  "description": "Futuristic web controller for ESP32 robot",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": ["esp32", "robot", "controller"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.14.2"
+  }
+}
+
