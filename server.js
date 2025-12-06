@@ -4,6 +4,7 @@ const WebSocket = require('ws');
 const dgram = require('dgram');
 const path = require('path');
 const os = require('os');
+const { spawn } = require('child_process');
 
 const app = express();
 const server = http.createServer(app);
@@ -24,6 +25,101 @@ const udpClient = dgram.createSocket('udp4');
 
 // Store ESP32 IP per client
 const clientConfigs = new Map();
+
+// Python autonomous process management
+let pythonProcess = null;
+let pythonRunning = false;
+
+function startPythonAutonomous(mode, esp32IP) {
+  // Kill existing process if running
+  if (pythonProcess) {
+    console.log('⚠️  Stopping existing autonomous process...');
+    pythonProcess.kill('SIGTERM');
+    pythonProcess = null;
+    pythonRunning = false;
+  }
+  
+  console.log(`🤖 Starting autonomous mode: ${mode}`);
+  console.log(`📡 ESP32 IP: ${esp32IP}`);
+  
+  // Spawn Python process
+  pythonProcess = spawn('python3', [
+    path.join(__dirname, 'autonomous_gingerbread.py'),
+    '--mode', mode,
+    '--esp32-ip', esp32IP
+  ]);
+  
+  pythonRunning = true;
+  
+  // Handle stdout
+  pythonProcess.stdout.on('data', (data) => {
+    const message = data.toString().trim();
+    console.log(`🐍 Python: ${message}`);
+    
+    // Broadcast status to all connected clients
+    broadcastToClients({
+      type: 'autonomous_status',
+      message: message,
+      running: true
+    });
+  });
+  
+  // Handle stderr
+  pythonProcess.stderr.on('data', (data) => {
+    const error = data.toString().trim();
+    console.error(`🐍 Python Error: ${error}`);
+    
+    broadcastToClients({
+      type: 'autonomous_error',
+      message: error
+    });
+  });
+  
+  // Handle process exit
+  pythonProcess.on('close', (code) => {
+    console.log(`🐍 Python process exited with code ${code}`);
+    pythonRunning = false;
+    pythonProcess = null;
+    
+    broadcastToClients({
+      type: 'autonomous_status',
+      message: 'Autonomous mode stopped',
+      running: false
+    });
+  });
+  
+  // Broadcast started status
+  broadcastToClients({
+    type: 'autonomous_started',
+    mode: mode,
+    running: true
+  });
+}
+
+function stopPythonAutonomous() {
+  if (pythonProcess) {
+    console.log('🛑 Stopping autonomous mode...');
+    pythonProcess.kill('SIGTERM');
+    pythonProcess = null;
+    pythonRunning = false;
+    
+    broadcastToClients({
+      type: 'autonomous_stopped',
+      running: false
+    });
+    
+    return true;
+  }
+  return false;
+}
+
+function broadcastToClients(message) {
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(message));
+    }
+  });
+}
 
 // WebSocket connection handler
 wss.on('connection', (ws) => {
@@ -95,6 +191,43 @@ wss.on('connection', (ws) => {
           sendToESP32('FIRE\n');
           console.log('🔥 FIRE BUTTON PRESSED');
           break;
+          
+        case 'start_autonomous':
+          // Start autonomous mode
+          if (!esp32IP) {
+            ws.send(JSON.stringify({ 
+              type: 'error', 
+              message: 'ESP32 IP not configured' 
+            }));
+            break;
+          }
+          
+          const mode = data.mode || 'search_left';
+          startPythonAutonomous(mode, esp32IP);
+          ws.send(JSON.stringify({ 
+            type: 'autonomous_ack', 
+            mode: mode,
+            running: true 
+          }));
+          break;
+          
+        case 'stop_autonomous':
+          // Stop autonomous mode
+          const stopped = stopPythonAutonomous();
+          ws.send(JSON.stringify({ 
+            type: 'autonomous_ack', 
+            running: false,
+            stopped: stopped
+          }));
+          break;
+          
+        case 'autonomous_status':
+          // Query autonomous mode status
+          ws.send(JSON.stringify({
+            type: 'autonomous_status',
+            running: pythonRunning
+          }));
+          break;
       }
     } catch (error) {
       console.error('Message parse error:', error);
@@ -143,6 +276,13 @@ server.listen(PORT, () => {
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\n\n🛑 Shutting down gracefully...');
+  
+  // Stop Python autonomous process if running
+  if (pythonProcess) {
+    console.log('🛑 Stopping autonomous process...');
+    pythonProcess.kill('SIGTERM');
+  }
+  
   udpClient.close();
   server.close();
   process.exit(0);

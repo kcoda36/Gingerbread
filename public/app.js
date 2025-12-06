@@ -64,6 +64,12 @@ class ESP32Controller {
     document.getElementById('gingerbread-mode-btn').addEventListener('click', () => this.toggleGingerbreadMode());
     document.getElementById('close-gingerbread-btn').addEventListener('click', () => this.toggleGingerbreadMode());
     
+    // Autonomous mode button handlers
+    document.getElementById('search-left-btn').addEventListener('click', () => this.startAutonomous('search_left'));
+    document.getElementById('search-right-btn').addEventListener('click', () => this.startAutonomous('search_right'));
+    document.getElementById('track-btn').addEventListener('click', () => this.startAutonomous('track'));
+    document.getElementById('stop-autonomous-btn').addEventListener('click', () => this.stopAutonomous());
+    
     // Listen for fullscreen changes
     document.addEventListener('fullscreenchange', () => this.updateFullscreenButton());
     document.addEventListener('webkitfullscreenchange', () => this.updateFullscreenButton());
@@ -143,6 +149,32 @@ class ESP32Controller {
       if (data.type === 'error') {
         console.error('Error:', data.message);
         this.updateStatus('error', 'ERROR');
+      }
+      
+      if (data.type === 'autonomous_started' || data.type === 'autonomous_ack') {
+        if (data.running) {
+          this.updateAutonomousStatus(`RUNNING: ${data.mode || 'active'}`, true);
+        } else {
+          this.updateAutonomousStatus('INACTIVE', false);
+        }
+      }
+      
+      if (data.type === 'autonomous_stopped') {
+        this.updateAutonomousStatus('INACTIVE', false);
+      }
+      
+      if (data.type === 'autonomous_status') {
+        if (data.message) {
+          console.log('🤖 Autonomous:', data.message);
+        }
+        if (data.running !== undefined) {
+          this.updateAutonomousStatus(data.running ? 'RUNNING' : 'INACTIVE', data.running);
+        }
+      }
+      
+      if (data.type === 'autonomous_error') {
+        console.error('🤖 Autonomous Error:', data.message);
+        this.updateAutonomousStatus('ERROR', false);
       }
     };
     
@@ -1070,6 +1102,48 @@ class ESP32Controller {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data));
       this.packetCount++;
+    }
+  }
+  
+  // Autonomous Mode Control
+  startAutonomous(mode) {
+    if (!this.connected) {
+      alert('Please connect to ESP32 first');
+      return;
+    }
+    
+    console.log(`🤖 Starting autonomous mode: ${mode}`);
+    this.send({
+      type: 'start_autonomous',
+      mode: mode
+    });
+    
+    // Visual feedback
+    this.updateAutonomousStatus(`Starting ${mode}...`, true);
+  }
+  
+  stopAutonomous() {
+    console.log('🛑 Stopping autonomous mode');
+    this.send({
+      type: 'stop_autonomous'
+    });
+    
+    // Visual feedback
+    this.updateAutonomousStatus('Stopping...', false);
+  }
+  
+  updateAutonomousStatus(text, isActive) {
+    const statusElement = document.getElementById('autonomous-status-text');
+    if (statusElement) {
+      statusElement.textContent = text;
+      
+      if (isActive) {
+        statusElement.style.color = 'var(--success)';
+        statusElement.style.fontWeight = '700';
+      } else {
+        statusElement.style.color = 'var(--text-secondary)';
+        statusElement.style.fontWeight = '400';
+      }
     }
   }
 }

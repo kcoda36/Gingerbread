@@ -272,6 +272,36 @@
         <div class="camera-hint">
           🍪 Hold GINGERBREAD in view • Move LEFT/RIGHT to steer • Robot follows the gingerbread!
         </div>
+        
+        <!-- Autonomous Controls -->
+        <div class="autonomous-controls">
+          <h4 class="autonomous-title">🤖 AUTONOMOUS MODES</h4>
+          <div class="autonomous-buttons">
+            <button id="search-left-btn" class="btn-autonomous">
+              <span class="btn-icon">🔄</span>
+              <span class="btn-text">SEARCH LEFT</span>
+            </button>
+            <button id="search-right-btn" class="btn-autonomous">
+              <span class="btn-icon">🔃</span>
+              <span class="btn-text">SEARCH RIGHT</span>
+            </button>
+            <button id="track-btn" class="btn-autonomous">
+              <span class="btn-icon">🎯</span>
+              <span class="btn-text">TRACK</span>
+            </button>
+            <button id="stop-autonomous-btn" class="btn-autonomous btn-stop">
+              <span class="btn-icon">⬛</span>
+              <span class="btn-text">STOP</span>
+            </button>
+          </div>
+          <div class="autonomous-status">
+            <span class="status-label">Autonomous Status:</span>
+            <span class="status-value" id="autonomous-status-text">INACTIVE</span>
+          </div>
+          <div class="autonomous-info">
+            ℹ️ Python runs on server with OpenCV tracking window
+          </div>
+        </div>
       </div>
     </div>
   </div>
