@@ -25,6 +25,10 @@ class GingerbreadBlob:
     center_y: float
     size: int
     detected: bool
+    min_x: int = 0
+    max_x: int = 0
+    min_y: int = 0
+    max_y: int = 0
 
 class AutonomousGingerbreadController:
     def __init__(self, esp32_ip, udp_port=4210, camera_index=0):
@@ -44,10 +48,10 @@ class AutonomousGingerbreadController:
         print("Camera initialized successfully")
         
         # Control parameters
-        self.deadzone_width = 0.30  # 30% center deadzone
+        self.deadzone_radius = 0.10  # 10% deadzone radius from center
         self.search_speed = 0.35  # Rotation speed when searching
         self.track_speed = 0.5  # Forward speed when tracking
-        self.turn_gain = 0.8  # How aggressively to turn
+        self.turn_gain = 1.2  # How aggressively to turn (higher = more responsive)
         
         # State
         self.mode = Mode.STOPPED
@@ -78,39 +82,54 @@ class AutonomousGingerbreadController:
         self.send_command(self.search_speed, -self.search_speed)
         
     def track_gingerbread(self, blob):
-        """Track detected gingerbread with differential steering"""
+        """Track detected gingerbread with differential steering based on distance from center"""
         if not blob.detected:
             self.stop()
             return
             
-        # Get frame width from camera
+        # Get frame dimensions
         frame_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         
-        # Calculate position relative to center (-0.5 to 0.5)
-        position = (blob.center_x / frame_width) - 0.5
+        # Calculate center of frame
+        center_x = frame_width / 2.0
+        center_y = frame_height / 2.0
         
-        deadzone_min = -self.deadzone_width / 2
-        deadzone_max = self.deadzone_width / 2
+        # Calculate horizontal distance from center (normalized -1 to 1)
+        # Positive = right of center, Negative = left of center
+        dx = (blob.center_x - center_x) / center_x
         
-        if position < deadzone_min:
-            # Turn left (normalize turn amount)
-            turn = -self.turn_gain * abs((position - deadzone_min) / (0.5 - self.deadzone_width / 2))
-            turn = max(-1, turn)
-            left = self.track_speed + turn
-            right = self.track_speed - turn
-            self.send_command(left, right)
-            
-        elif position > deadzone_max:
-            # Turn right (normalize turn amount)
-            turn = self.turn_gain * abs((position - deadzone_max) / (0.5 - self.deadzone_width / 2))
-            turn = min(1, turn)
-            left = self.track_speed + turn
-            right = self.track_speed - turn
-            self.send_command(left, right)
-            
-        else:
-            # In deadzone - go straight
+        # Calculate absolute distance from center (for deadzone check)
+        distance = abs(dx)
+        
+        # Deadzone: if within deadzone radius, go straight
+        if distance <= self.deadzone_radius:
+            # Dead center - go straight forward
             self.send_command(self.track_speed, self.track_speed)
+        else:
+            # Outside deadzone - turn proportional to distance
+            # Remove deadzone offset to make turning smooth
+            adjusted_distance = (distance - self.deadzone_radius) / (1.0 - self.deadzone_radius)
+            
+            # Calculate turn amount (proportional to distance from center)
+            turn = self.turn_gain * adjusted_distance
+            turn = min(1.0, turn)  # Clamp to max turn rate
+            
+            # Apply turn direction
+            if dx > 0:
+                # Target is right of center - turn right
+                left = self.track_speed + turn
+                right = self.track_speed - turn
+            else:
+                # Target is left of center - turn left
+                left = self.track_speed - turn
+                right = self.track_speed + turn
+            
+            # Clamp motor speeds to [-1, 1]
+            left = max(-1.0, min(1.0, left))
+            right = max(-1.0, min(1.0, right))
+            
+            self.send_command(left, right)
             
     def detect_gingerbread(self, frame):
         """Detect brown gingerbread blob in frame"""
@@ -153,65 +172,106 @@ class AutonomousGingerbreadController:
         cx = int(M["m10"] / M["m00"])
         cy = int(M["m01"] / M["m00"])
         
-        return GingerbreadBlob(cx, cy, int(area), True)
+        # Get bounding rectangle
+        x, y, w, h = cv2.boundingRect(largest)
+        
+        return GingerbreadBlob(
+            center_x=cx, 
+            center_y=cy, 
+            size=int(area), 
+            detected=True,
+            min_x=x,
+            max_x=x + w,
+            min_y=y,
+            max_y=y + h
+        )
         
     def draw_overlay(self, frame, blob):
         """Draw detection overlay on frame"""
         height, width = frame.shape[:2]
+        center_x = width // 2
+        center_y = height // 2
         
-        # Draw center deadzone (full height)
-        deadzone_width_px = int(width * self.deadzone_width)
-        deadzone_x1 = (width - deadzone_width_px) // 2
-        deadzone_x2 = deadzone_x1 + deadzone_width_px
+        # Calculate deadzone radius in pixels
+        deadzone_radius_px = int(width * self.deadzone_radius)
         
-        # Draw deadzone rectangle with dashed effect
+        # Draw center crosshair (screen center)
+        cv2.line(frame, (center_x - 30, center_y), (center_x + 30, center_y), (0, 255, 0), 3)
+        cv2.line(frame, (center_x, center_y - 30), (center_x, center_y + 30), (0, 255, 0), 3)
+        cv2.circle(frame, (center_x, center_y), 8, (0, 255, 0), -1)
+        
+        # Draw deadzone circle (centered on frame center)
         overlay = frame.copy()
-        cv2.rectangle(overlay, 
-                     (deadzone_x1, 0), 
-                     (deadzone_x2, height),
-                     (255, 212, 0), -1)
-        cv2.addWeighted(overlay, 0.15, frame, 0.85, 0, frame)
+        cv2.circle(overlay, (center_x, center_y), deadzone_radius_px, (0, 212, 255), -1)
+        cv2.addWeighted(overlay, 0.2, frame, 0.8, 0, frame)
         
         # Draw deadzone border
-        cv2.rectangle(frame, 
-                     (deadzone_x1, 0), 
-                     (deadzone_x2, height),
-                     (0, 212, 255), 2)
+        cv2.circle(frame, (center_x, center_y), deadzone_radius_px, (0, 212, 255), 3)
         
-        # Draw center line
-        cv2.line(frame, (width//2, 0), (width//2, height), (0, 255, 0), 2)
+        # Draw center vertical line for reference
+        cv2.line(frame, (center_x, 0), (center_x, height), (0, 255, 0), 2)
         
         # Draw left/right zone labels
-        cv2.putText(frame, "LEFT", (50, height//2), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 255), 3)
-        cv2.putText(frame, "RIGHT", (width-180, height//2), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 255), 3)
+        cv2.putText(frame, "LEFT", (30, height//2), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 100, 100), 3)
+        cv2.putText(frame, "RIGHT", (width-150, height//2), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 1.2, (100, 255, 100), 3)
         
         # Draw detection
         if blob.detected:
-            # Draw bounding circle
-            cv2.circle(frame, (int(blob.center_x), int(blob.center_y)), 
-                      25, (0, 255, 0), 3)
+            blob_x = int(blob.center_x)
+            blob_y = int(blob.center_y)
             
-            # Draw center point
-            cv2.circle(frame, (int(blob.center_x), int(blob.center_y)), 
-                      10, (0, 255, 0), -1)
+            # Calculate distance from center
+            dx = blob_x - center_x
+            dy = blob_y - center_y
+            distance_from_center = np.sqrt(dx*dx + dy*dy)
             
-            # Draw crosshair
+            # Choose color based on deadzone
+            if distance_from_center <= deadzone_radius_px:
+                color = (0, 255, 0)  # Green - in deadzone (go straight)
+            else:
+                color = (0, 255, 255)  # Yellow - outside deadzone (turning)
+            
+            # Draw actual bounding box around detected blob
+            cv2.rectangle(frame,
+                         (blob.min_x, blob.min_y),
+                         (blob.max_x, blob.max_y),
+                         color, 3)
+            
+            # Draw center point of blob
+            cv2.circle(frame, (blob_x, blob_y), 12, color, -1)
+            cv2.circle(frame, (blob_x, blob_y), 15, (255, 255, 255), 2)
+            
+            # Draw crosshair on blob center
             cv2.line(frame, 
-                    (int(blob.center_x)-30, int(blob.center_y)), 
-                    (int(blob.center_x)+30, int(blob.center_y)), 
-                    (255, 255, 255), 3)
+                    (blob_x - 25, blob_y), 
+                    (blob_x + 25, blob_y), 
+                    (255, 255, 255), 2)
             cv2.line(frame, 
-                    (int(blob.center_x), int(blob.center_y)-30), 
-                    (int(blob.center_x), int(blob.center_y)+30), 
-                    (255, 255, 255), 3)
+                    (blob_x, blob_y - 25), 
+                    (blob_x, blob_y + 25), 
+                    (255, 255, 255), 2)
+            
+            # Draw line from blob center to frame center
+            cv2.line(frame, (blob_x, blob_y), (center_x, center_y), (255, 0, 255), 2)
+            
+            # Draw distance text
+            distance_text = f"Dist: {distance_from_center:.0f}px"
+            cv2.putText(frame, distance_text, 
+                       (blob_x + 20, blob_y - 20), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            
+            # Calculate horizontal offset from center (normalized)
+            offset_x = (blob_x - center_x) / center_x
+            direction = "CENTER" if distance_from_center <= deadzone_radius_px else ("RIGHT" if offset_x > 0 else "LEFT")
             
             # Status text - detected
-            cv2.rectangle(frame, (5, 5), (400, 60), (0, 255, 0), -1)
-            cv2.rectangle(frame, (5, 5), (400, 60), (255, 255, 255), 2)
-            cv2.putText(frame, f"DETECTED | Size: {blob.size}", 
-                       (15, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+            status_text = f"DETECTED | {direction} | Offset: {offset_x:.2f}"
+            cv2.rectangle(frame, (5, 5), (550, 60), (0, 255, 0), -1)
+            cv2.rectangle(frame, (5, 5), (550, 60), (255, 255, 255), 2)
+            cv2.putText(frame, status_text, 
+                       (15, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
         else:
             # Status text - searching
             cv2.rectangle(frame, (5, 5), (400, 60), (0, 0, 255), -1)
