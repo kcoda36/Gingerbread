@@ -63,6 +63,7 @@ class ESP32Controller {
     document.getElementById('search-left-btn').addEventListener('click', () => this.startAutonomous('search_left'));
     document.getElementById('search-right-btn').addEventListener('click', () => this.startAutonomous('search_right'));
     document.getElementById('track-btn').addEventListener('click', () => this.startAutonomous('track'));
+    document.getElementById('follow-btn').addEventListener('click', () => this.startAutonomous('follow'));
     document.getElementById('stop-autonomous-btn').addEventListener('click', () => this.stopAutonomous());
     
     // Listen for fullscreen changes

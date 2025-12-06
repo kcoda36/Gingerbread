@@ -1177,6 +1177,10 @@ body {
   margin-bottom: 1rem;
 }
 
+.autonomous-buttons #stop-autonomous-btn {
+  grid-column: span 2;
+}
+
 .btn-autonomous {
   display: flex;
   flex-direction: column;

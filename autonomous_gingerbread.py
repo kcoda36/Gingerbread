@@ -18,6 +18,7 @@ class Mode(Enum):
     SEARCH_LEFT = "search_left"
     SEARCH_RIGHT = "search_right"
     TRACK = "track"
+    FOLLOW = "follow"
     STOPPED = "stopped"
 
 @dataclass
@@ -52,6 +53,7 @@ class AutonomousGingerbreadController:
         self.deadzone_radius = 0.15  # 15% deadzone radius from center (increased from 10%)
         self.min_turn_threshold = 0.15  # Minimum turn amount to actually turn (prevents jitter)
         self.search_speed = 0.4  # Rotation speed when searching
+        self.follow_turn_speed = 0.35  # Rotation speed for follow mode
         self.track_speed = 0.6  # Forward speed when tracking
         self.turn_gain = 1.5  # How aggressively to turn (higher = more responsive)
         
@@ -94,6 +96,46 @@ class AutonomousGingerbreadController:
     def spin_right(self):
         """Spin in place clockwise"""
         self.send_command(self.search_speed, -self.search_speed)
+    
+    def follow_gingerbread(self, blob):
+        """Follow mode - only rotate to keep target in view, never advance"""
+        if not blob.detected:
+            # No target - spin slowly to search
+            self.spin_left()
+            return
+        
+        # Get frame dimensions
+        frame_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        
+        # Apply smoothing to blob position
+        if self.smoothed_x is None:
+            self.smoothed_x = blob.center_x
+        else:
+            self.smoothed_x = (self.smoothing_factor * blob.center_x + 
+                             (1 - self.smoothing_factor) * self.smoothed_x)
+        
+        # Calculate center of frame
+        center_x = frame_width / 2.0
+        
+        # Calculate horizontal offset from center (normalized -1 to 1)
+        dx = (self.smoothed_x - center_x) / center_x
+        distance = abs(dx)
+        
+        # If in deadzone, stop rotating (target is centered)
+        if distance <= self.deadzone_radius:
+            self.stop()
+            return
+        
+        # Calculate rotation speed based on offset (proportional)
+        rotation_speed = self.follow_turn_speed * min(1.0, distance * 2.0)
+        
+        # Rotate towards target (NO forward movement)
+        if dx > 0:
+            # Target is right - rotate right (clockwise)
+            self.send_command(rotation_speed, -rotation_speed)
+        else:
+            # Target is left - rotate left (counterclockwise)
+            self.send_command(-rotation_speed, rotation_speed)
         
     def track_gingerbread(self, blob):
         """Track detected gingerbread with differential steering based on distance from center"""
@@ -388,6 +430,9 @@ class AutonomousGingerbreadController:
                     elif line == 'TRACK':
                         self.mode = Mode.TRACK
                         print("🎯 Switching to TRACK mode")
+                    elif line == 'FOLLOW':
+                        self.mode = Mode.FOLLOW
+                        print("👁️  Switching to FOLLOW mode")
             except Exception as e:
                 print(f"⚠️  Error reading stdin: {e}")
     
@@ -443,6 +488,12 @@ class AutonomousGingerbreadController:
                         else:
                             # Keep previous command briefly (momentum)
                             pass
+                
+                elif self.mode == Mode.FOLLOW:
+                    # Follow mode - only rotate, never advance
+                    self.follow_gingerbread(blob)
+                    if blob.detected:
+                        self.last_detection_time = time.time()
                             
                 elif self.mode == Mode.STOPPED:
                     # STOP mode - actively send stop commands
@@ -470,6 +521,9 @@ class AutonomousGingerbreadController:
                 elif key == ord('t') or key == ord('T'):
                     print("🎯 Track mode activated")
                     self.mode = Mode.TRACK
+                elif key == ord('f') or key == ord('F'):
+                    print("👁️  Follow mode activated")
+                    self.mode = Mode.FOLLOW
                     
         except KeyboardInterrupt:
             print("\n⚠️  Interrupted by user")
@@ -486,7 +540,7 @@ class AutonomousGingerbreadController:
 def main():
     parser = argparse.ArgumentParser(description='Autonomous Gingerbread Tracking System')
     parser.add_argument('--mode', default='search_left', 
-                       choices=['search_left', 'search_right', 'track', 'stopped'],
+                       choices=['search_left', 'search_right', 'track', 'follow', 'stopped'],
                        help='Initial autonomous mode')
     parser.add_argument('--esp32-ip', required=True,
                        help='ESP32 IP address')
