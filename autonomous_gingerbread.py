@@ -61,10 +61,10 @@ class AutonomousGingerbreadController:
         
         # Control parameters
         self.deadzone_radius = 0.15  # 15% deadzone radius from center for TRACK mode
-        self.follow_deadzone_radius = 0.075  # 7.5% deadzone for FOLLOW mode (50% smaller)
+        self.follow_deadzone_radius = 0.0375  # 3.75% deadzone for FOLLOW mode (very tight centering)
         self.min_turn_threshold = 0.15  # Minimum turn amount to actually turn (prevents jitter)
         self.search_speed = 0.3  # Rotation speed when searching (reduced by 25% from 0.4)
-        self.follow_turn_speed = 0.35  # Rotation speed for follow mode
+        self.follow_turn_speed = 0.70  # Rotation speed for follow mode (doubled for faster response)
         self.track_speed = 0.6  # Forward speed when tracking (unchanged)
         self.turn_gain = 1.5  # How aggressively to turn (higher = more responsive)
         
