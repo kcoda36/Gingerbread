@@ -65,10 +65,18 @@ class AutonomousGingerbreadController:
         self.smoothed_x = None
         self.smoothing_factor = 0.3  # 0 = no smoothing, 1 = instant
         
+        # Command tracking for display
+        self.last_command_left = 0.0
+        self.last_command_right = 0.0
+        
         print(f"Connected to ESP32 at {esp32_ip}:{udp_port}")
         
     def send_command(self, left, right):
         """Send UDP command to ESP32"""
+        # Store for display
+        self.last_command_left = left
+        self.last_command_right = right
+        
         command = f"L:{left:.3f},R:{right:.3f}"
         try:
             self.sock.sendto(command.encode(), (self.esp32_ip, self.udp_port))
@@ -114,10 +122,10 @@ class AutonomousGingerbreadController:
         # Calculate absolute distance from center
         distance = abs(dx)
         
-        # Deadzone: if within deadzone radius, go straight (NO turning at all)
+        # Deadzone: if within deadzone radius, STOP (target is centered!)
         if distance <= self.deadzone_radius:
-            # Dead center - go straight forward, no adjustments
-            self.send_command(self.track_speed, self.track_speed)
+            # Target is centered - STOP (we've "caught" it)
+            self.send_command(0.0, 0.0)
             return
         
         # Outside deadzone - calculate turn amount
@@ -128,9 +136,9 @@ class AutonomousGingerbreadController:
         turn = self.turn_gain * adjusted_distance
         turn = min(1.0, turn)  # Clamp to max turn rate
         
-        # Apply minimum turn threshold - if turn is too small, ignore it (go straight)
+        # Apply minimum turn threshold - if turn is too small, still stop (close enough to center)
         if turn < self.min_turn_threshold:
-            self.send_command(self.track_speed, self.track_speed)
+            self.send_command(0.0, 0.0)
             return
         
         # Apply turn direction
@@ -253,8 +261,8 @@ class AutonomousGingerbreadController:
             
             # Determine status
             if distance_from_center <= deadzone_radius_px:
-                color = (0, 255, 0)  # Green - in deadzone (go straight)
-                status = "STRAIGHT"
+                color = (0, 0, 255)  # Red - in deadzone (STOPPED - target centered!)
+                status = "🎯 CENTERED - STOPPED"
             else:
                 # Check if turn would be applied
                 adjusted_dist = (distance_norm - self.deadzone_radius) / (1.0 - self.deadzone_radius)
@@ -262,7 +270,7 @@ class AutonomousGingerbreadController:
                 
                 if turn_amount < self.min_turn_threshold:
                     color = (0, 255, 255)  # Yellow - outside deadzone but below turn threshold
-                    status = "STRAIGHT (below threshold)"
+                    status = "STOPPED (below threshold)"
                 else:
                     color = (255, 0, 255)  # Magenta - actively turning
                     status = "TURNING"
@@ -300,13 +308,17 @@ class AutonomousGingerbreadController:
             offset_x = (blob_x - center_x) / center_x
             direction = "RIGHT" if offset_x > 0 else "LEFT"
             
-            # Status text - detected with action
-            status_text = f"DETECTED | {status} | {direction} {abs(offset_x):.2f}"
-            text_width = 700
-            cv2.rectangle(frame, (5, 5), (text_width, 60), (0, 255, 0), -1)
+            # Status text - detected with action  
+            status_text = f"DETECTED | {status}"
+            if "CENTERED" not in status:
+                status_text += f" | {direction} {abs(offset_x):.2f}"
+            
+            text_width = 750
+            status_bg_color = (0, 0, 255) if "STOPPED" in status or "CENTERED" in status else (0, 255, 0)
+            cv2.rectangle(frame, (5, 5), (text_width, 60), status_bg_color, -1)
             cv2.rectangle(frame, (5, 5), (text_width, 60), (255, 255, 255), 2)
             cv2.putText(frame, status_text, 
-                       (15, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+                       (15, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         else:
             # Status text - searching
             cv2.rectangle(frame, (5, 5), (400, 60), (0, 0, 255), -1)
@@ -314,17 +326,40 @@ class AutonomousGingerbreadController:
             cv2.putText(frame, "SEARCHING...", 
                        (15, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
         
-        # Mode indicator at bottom
-        mode_text = f"MODE: {self.mode.value.upper()}"
-        text_size = cv2.getTextSize(mode_text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
-        cv2.rectangle(frame, (5, height-55), (text_size[0]+20, height-5), (255, 255, 0), -1)
-        cv2.rectangle(frame, (5, height-55), (text_size[0]+20, height-5), (255, 255, 255), 2)
-        cv2.putText(frame, mode_text, 
-                   (15, height-20), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        # Command display at bottom - LARGE AND PROMINENT
+        cmd_text = f"SENDING >>> LEFT: {self.last_command_left:+.3f}  |  RIGHT: {self.last_command_right:+.3f}"
+        cmd_text_size = cv2.getTextSize(cmd_text, cv2.FONT_HERSHEY_SIMPLEX, 1.0, 3)[0]
         
-        # Instructions
-        cv2.putText(frame, "ESC=Exit | S=Stop | L=Search Left | R=Search Right | T=Track", 
-                   (10, height-70), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        # Command box background
+        cmd_box_height = 80
+        cv2.rectangle(frame, (0, height-cmd_box_height), (width, height), (0, 0, 0), -1)
+        
+        # Determine color based on commands
+        if abs(self.last_command_left) < 0.01 and abs(self.last_command_right) < 0.01:
+            cmd_color = (0, 0, 255)  # Red = STOPPED
+            action_text = "⬛ STOPPED"
+        elif abs(self.last_command_left - self.last_command_right) < 0.01:
+            cmd_color = (0, 255, 0)  # Green = STRAIGHT
+            action_text = "↑ FORWARD"
+        else:
+            cmd_color = (255, 0, 255)  # Magenta = TURNING
+            if self.last_command_left > self.last_command_right:
+                action_text = "↱ TURN RIGHT"
+            else:
+                action_text = "↰ TURN LEFT"
+        
+        # Draw command text
+        cv2.putText(frame, cmd_text, 
+                   (15, height-45), cv2.FONT_HERSHEY_SIMPLEX, 1.0, cmd_color, 3)
+        
+        # Draw action indicator
+        cv2.putText(frame, action_text, 
+                   (15, height-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, cmd_color, 2)
+        
+        # Mode indicator (top of command box)
+        mode_text = f"MODE: {self.mode.value.upper()}"
+        cv2.putText(frame, mode_text, 
+                   (width-250, height-50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         
         return frame
         
