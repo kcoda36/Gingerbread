@@ -11,21 +11,8 @@ class ESP32Controller {
     this.currentLeft = 0;
     this.currentRight = 0;
     
-    // Camera control state
-    this.cameraMode = false;
-    this.handPosition = 0; // -1 to 1, 0 is center
-    this.handDetected = false;
-    this.fistClosed = false;
-    this.cameraStream = null;
-    this.hands = null;
-    this.camera = null;
-    
     // Gingerbread autonomous mode state
     this.gingerbreadMode = false;
-    
-    // Deadzone configuration (30% width in center, 40% height in center)
-    this.deadzoneWidth = 0.30;
-    this.deadzoneHeight = 0.40;
     
     // Telemetry
     this.packetCount = 0;
@@ -52,25 +39,41 @@ class ESP32Controller {
     // Control screen handlers
     document.getElementById('disconnect-btn').addEventListener('click', () => this.disconnect());
     document.getElementById('stop-btn').addEventListener('click', () => this.emergencyStop());
-    document.getElementById('fire-btn').addEventListener('click', () => this.fireButton());
-    document.getElementById('fullscreen-btn').addEventListener('click', () => this.toggleFullscreen());
-    document.getElementById('camera-mode-btn').addEventListener('click', () => this.toggleCameraMode());
-    document.getElementById('close-camera-btn').addEventListener('click', () => this.toggleCameraMode());
+    
+    // Fire button - hold to activate, release to deactivate
+    const fireBtn = document.getElementById('fire-btn');
+    fireBtn.addEventListener('mousedown', () => this.relayOn());
+    fireBtn.addEventListener('mouseup', () => this.relayOff());
+    fireBtn.addEventListener('mouseleave', () => this.relayOff());
+    fireBtn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      this.relayOn();
+    });
+    fireBtn.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      this.relayOff();
+    });
+    fireBtn.addEventListener('touchcancel', (e) => {
+      e.preventDefault();
+      this.relayOff();
+    });
+    
     document.getElementById('gingerbread-mode-btn').addEventListener('click', () => this.toggleGingerbreadMode());
     document.getElementById('close-gingerbread-btn').addEventListener('click', () => this.toggleGingerbreadMode());
     
-    // Autonomous mode button handlers
+    // Autonomous mode button handlers (in gingerbread overlay)
     document.getElementById('search-left-btn').addEventListener('click', () => this.startAutonomous('search_left'));
     document.getElementById('search-right-btn').addEventListener('click', () => this.startAutonomous('search_right'));
     document.getElementById('track-btn').addEventListener('click', () => this.startAutonomous('track'));
     document.getElementById('follow-btn').addEventListener('click', () => this.startAutonomous('follow'));
     document.getElementById('stop-autonomous-btn').addEventListener('click', () => this.stopAutonomous());
     
-    // Listen for fullscreen changes
-    document.addEventListener('fullscreenchange', () => this.updateFullscreenButton());
-    document.addEventListener('webkitfullscreenchange', () => this.updateFullscreenButton());
-    document.addEventListener('mozfullscreenchange', () => this.updateFullscreenButton());
-    document.addEventListener('msfullscreenchange', () => this.updateFullscreenButton());
+    // Quick autonomous buttons (on main page)
+    document.getElementById('quick-search-left').addEventListener('click', () => this.startAutonomous('search_left'));
+    document.getElementById('quick-search-right').addEventListener('click', () => this.startAutonomous('search_right'));
+    document.getElementById('quick-track').addEventListener('click', () => this.startAutonomous('track'));
+    document.getElementById('quick-follow').addEventListener('click', () => this.startAutonomous('follow'));
+    
     
     // Keypad button handlers
     document.querySelectorAll('.key-btn').forEach(btn => {
@@ -94,13 +97,6 @@ class ESP32Controller {
     // Keyboard controls
     window.addEventListener('keydown', (e) => this.handleKeyDown(e));
     window.addEventListener('keyup', (e) => this.handleKeyUp(e));
-    
-    // Fire button touch support
-    const fireBtn = document.getElementById('fire-btn');
-    fireBtn.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      this.fireButton();
-    });
   }
   
   connect() {
@@ -334,7 +330,7 @@ class ESP32Controller {
     right = Math.max(-1, Math.min(1, right));
     
     // Smooth transition (exponential moving average)
-    const smoothing = this.cameraMode ? 0.4 : 0.3;
+    const smoothing = 0.3;
     this.currentLeft = this.currentLeft * (1 - smoothing) + left * smoothing;
     this.currentRight = this.currentRight * (1 - smoothing) + right * smoothing;
     
@@ -350,15 +346,9 @@ class ESP32Controller {
   }
   
   updateTelemetry() {
-    // Update motor values
+    // Update motor values in header
     document.getElementById('left-value').textContent = this.currentLeft.toFixed(3);
     document.getElementById('right-value').textContent = this.currentRight.toFixed(3);
-    
-    // Update bars (convert -1 to 1 → 0 to 100%)
-    const leftPercent = (Math.abs(this.currentLeft) * 100);
-    const rightPercent = (Math.abs(this.currentRight) * 100);
-    document.getElementById('left-bar').style.width = `${leftPercent}%`;
-    document.getElementById('right-bar').style.width = `${rightPercent}%`;
     
     // Calculate send rate
     const now = Date.now();
@@ -367,7 +357,6 @@ class ESP32Controller {
     this.sendRate = this.lastSendTimes.length;
     
     document.getElementById('send-rate').textContent = `${this.sendRate} Hz`;
-    document.getElementById('packet-count').textContent = this.packetCount;
   }
   
   emergencyStop() {
@@ -383,26 +372,42 @@ class ESP32Controller {
     setTimeout(() => btn.style.transform = '', 100);
   }
   
-  async fireButton() {
-    this.send({ type: 'fire' });
+  async relayOn() {
+    if (!this.esp32IP) return;
     
-    // Send HTTP request directly to ESP32 to toggle relay
-    if (this.esp32IP) {
-      try {
-        const response = await fetch(`http://${this.esp32IP}/relay/toggle`, {
-          method: 'GET',
-          mode: 'no-cors' // ESP32 has CORS enabled, but no-cors as fallback
-        });
-        console.log('🔥 Relay toggled');
-      } catch (error) {
-        console.error('Relay toggle error:', error);
-      }
+    try {
+      await fetch(`http://${this.esp32IP}/relay/on`, {
+        method: 'GET',
+        mode: 'no-cors'
+      });
+      console.log('🔥 Relay ON');
+      
+      // Visual feedback
+      const btn = document.getElementById('fire-btn');
+      btn.classList.add('active');
+      btn.style.transform = 'scale(0.95)';
+    } catch (error) {
+      console.error('Relay ON error:', error);
     }
+  }
+  
+  async relayOff() {
+    if (!this.esp32IP) return;
     
-    // Visual feedback
-    const btn = document.getElementById('fire-btn');
-    btn.style.transform = 'scale(0.9)';
-    setTimeout(() => btn.style.transform = '', 150);
+    try {
+      await fetch(`http://${this.esp32IP}/relay/off`, {
+        method: 'GET',
+        mode: 'no-cors'
+      });
+      console.log('🔥 Relay OFF');
+      
+      // Visual feedback
+      const btn = document.getElementById('fire-btn');
+      btn.classList.remove('active');
+      btn.style.transform = 'scale(1)';
+    } catch (error) {
+      console.error('Relay OFF error:', error);
+    }
   }
   
   keyDown(key) {
@@ -458,9 +463,6 @@ class ESP32Controller {
     if (e.key === ' ') {
       this.emergencyStop();
     }
-    if (e.key === 'f' || e.key === 'F') {
-      this.fireButton();
-    }
   }
   
   handleKeyUp(e) {
@@ -486,331 +488,8 @@ class ESP32Controller {
     }
   }
   
-  toggleFullscreen() {
-    const elem = document.documentElement;
-    
-    // Check if currently in fullscreen
-    const isFullscreen = document.fullscreenElement || 
-                         document.webkitFullscreenElement || 
-                         document.mozFullScreenElement || 
-                         document.msFullscreenElement;
-    
-    if (!isFullscreen) {
-      // Enter fullscreen
-      if (elem.requestFullscreen) {
-        elem.requestFullscreen().catch(err => {
-          console.error('Error attempting to enable fullscreen:', err);
-        });
-      } else if (elem.webkitRequestFullscreen) { // Safari
-        elem.webkitRequestFullscreen();
-      } else if (elem.mozRequestFullScreen) { // Firefox
-        elem.mozRequestFullScreen();
-      } else if (elem.msRequestFullscreen) { // IE11
-        elem.msRequestFullscreen();
-      } else {
-        console.warn('Fullscreen API not supported');
-        alert('Fullscreen mode is not supported on this browser');
-      }
-    } else {
-      // Exit fullscreen
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-      } else if (document.webkitExitFullscreen) { // Safari
-        document.webkitExitFullscreen();
-      } else if (document.mozCancelFullScreen) { // Firefox
-        document.mozCancelFullScreen();
-      } else if (document.msExitFullscreen) { // IE11
-        document.msExitFullscreen();
-      }
-    }
-  }
-  
-  updateFullscreenButton() {
-    const btn = document.getElementById('fullscreen-btn');
-    if (!btn) return;
-    
-    const isFullscreen = document.fullscreenElement || 
-                         document.webkitFullscreenElement || 
-                         document.mozFullScreenElement || 
-                         document.msFullscreenElement;
-    
-    const icon = btn.querySelector('.fullscreen-icon');
-    if (isFullscreen) {
-      icon.textContent = '⛶';
-      btn.title = 'Exit Fullscreen';
-    } else {
-      icon.textContent = '⛶';
-      btn.title = 'Enter Fullscreen';
-    }
-  }
-  
-  // Camera Mode
-  async toggleCameraMode() {
-    this.cameraMode = !this.cameraMode;
-    const overlay = document.getElementById('camera-overlay');
-    const btn = document.getElementById('camera-mode-btn');
-    
-    if (this.cameraMode) {
-      btn.classList.add('active');
-      overlay.classList.add('active');
-      await this.startCamera();
-    } else {
-      btn.classList.remove('active');
-      overlay.classList.remove('active');
-      this.stopCamera();
-    }
-  }
-  
-  async startCamera() {
-    try {
-      // Request camera access
-      this.cameraStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          facingMode: 'user'
-        }
-      });
-      
-      const video = document.getElementById('camera-video');
-      video.srcObject = this.cameraStream;
-      
-      // Initialize MediaPipe Hands
-      this.hands = new Hands({
-        locateFile: (file) => {
-          return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-        }
-      });
-      
-      this.hands.setOptions({
-        maxNumHands: 1,
-        modelComplexity: 1,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5
-      });
-      
-      this.hands.onResults((results) => this.onHandResults(results));
-      
-      // Start camera
-      this.camera = new Camera(video, {
-        onFrame: async () => {
-          await this.hands.send({ image: video });
-        },
-        width: 640,
-        height: 480
-      });
-      
-      this.camera.start();
-      
-      console.log('📷 Camera started with hand tracking');
-    } catch (error) {
-      console.error('Camera access error:', error);
-      alert('Unable to access camera. Please allow camera permissions.');
-      this.toggleCameraMode();
-    }
-  }
-  
-  stopCamera() {
-    if (this.camera) {
-      this.camera.stop();
-      this.camera = null;
-    }
-    
-    if (this.cameraStream) {
-      this.cameraStream.getTracks().forEach(track => track.stop());
-      this.cameraStream = null;
-    }
-    
-    if (this.hands) {
-      this.hands.close();
-      this.hands = null;
-    }
-    
-    this.handDetected = false;
-    this.handPosition = 0;
-    
-    console.log('📷 Camera stopped');
-  }
-  
-  calculateHandCenter(landmarks) {
-    // Calculate the center of all landmarks
-    let sumX = 0, sumY = 0;
-    for (const landmark of landmarks) {
-      sumX += landmark.x;
-      sumY += landmark.y;
-    }
-    return {
-      x: sumX / landmarks.length,
-      y: sumY / landmarks.length
-    };
-  }
-  
-  detectFist(landmarks) {
-    // Detect closed fist by checking if fingertips are close to palm
-    // landmarks: 0=wrist, 4=thumb tip, 8=index tip, 12=middle tip, 16=ring tip, 20=pinky tip
-    const wrist = landmarks[0];
-    const thumbTip = landmarks[4];
-    const indexTip = landmarks[8];
-    const middleTip = landmarks[12];
-    const ringTip = landmarks[16];
-    const pinkyTip = landmarks[20];
-    
-    // Calculate distances from fingertips to wrist
-    const distance = (p1, p2) => {
-      return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
-    };
-    
-    const thumbDist = distance(thumbTip, wrist);
-    const indexDist = distance(indexTip, wrist);
-    const middleDist = distance(middleTip, wrist);
-    const ringDist = distance(ringTip, wrist);
-    const pinkyDist = distance(pinkyTip, wrist);
-    
-    // Average distance when hand is open (roughly 0.3-0.4)
-    // When closed, fingers are closer (roughly 0.1-0.2)
-    const avgDist = (indexDist + middleDist + ringDist + pinkyDist) / 4;
-    
-    // Threshold: if average distance is less than 0.18, it's a fist
-    return avgDist < 0.18;
-  }
-  
-  onHandResults(results) {
-    const canvas = document.getElementById('camera-canvas');
-    const ctx = canvas.getContext('2d');
-    const video = document.getElementById('camera-video');
-    
-    // Set canvas size to match the displayed size of video element
-    const rect = video.getBoundingClientRect();
-    canvas.width = rect.width;
-    canvas.height = rect.height;
-    
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Check if hand is detected
-    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-      const landmarks = results.multiHandLandmarks[0];
-      this.handDetected = true;
-      
-      // Calculate hand center (average of all landmarks)
-      const handCenter = this.calculateHandCenter(landmarks);
-      
-      // Detect if fist is closed
-      this.fistClosed = this.detectFist(landmarks);
-      
-      // Position: don't flip - hand right = positive (turn right), hand left = negative (turn left)
-      this.handPosition = (handCenter.x - 0.5);
-      
-      // DON'T mirror in JavaScript - CSS already mirrors both video and canvas!
-      // Just draw normally, CSS handles the mirroring
-      
-      // Draw connections manually
-      const connections = [
-        [0,1],[1,2],[2,3],[3,4], // Thumb
-        [0,5],[5,6],[6,7],[7,8], // Index
-        [0,9],[9,10],[10,11],[11,12], // Middle
-        [0,13],[13,14],[14,15],[15,16], // Ring
-        [0,17],[17,18],[18,19],[19,20], // Pinky
-        [5,9],[9,13],[13,17] // Palm
-      ];
-      
-      ctx.strokeStyle = this.fistClosed ? '#00ff88' : '#00d4ff';
-      ctx.lineWidth = 3;
-      
-      for (const [start, end] of connections) {
-        const startLm = landmarks[start];
-        const endLm = landmarks[end];
-        
-        ctx.beginPath();
-        ctx.moveTo(startLm.x * canvas.width, startLm.y * canvas.height);
-        ctx.lineTo(endLm.x * canvas.width, endLm.y * canvas.height);
-        ctx.stroke();
-      }
-      
-      // Draw landmark points
-      ctx.fillStyle = this.fistClosed ? '#00ff88' : '#ff2e63';
-      for (const lm of landmarks) {
-        ctx.beginPath();
-        ctx.arc(lm.x * canvas.width, lm.y * canvas.height, 4, 0, 2 * Math.PI);
-        ctx.fill();
-      }
-      
-      // Draw center indicator
-      const centerX = handCenter.x * canvas.width;
-      const centerY = handCenter.y * canvas.height;
-      
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, 15, 0, 2 * Math.PI);
-      ctx.fillStyle = this.fistClosed ? '#00ff88' : '#ffaa00';
-      ctx.fill();
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-      
-      // Draw center dot
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, 3, 0, 2 * Math.PI);
-      ctx.fillStyle = '#000';
-      ctx.fill();
-      
-      // Update UI
-      document.getElementById('hand-status').textContent = 'YES';
-      document.getElementById('hand-status').style.color = 'var(--success)';
-      
-      document.getElementById('fist-status').textContent = this.fistClosed ? '👊 YES' : 'NO';
-      document.getElementById('fist-status').style.color = this.fistClosed ? 'var(--success)' : 'var(--text-secondary)';
-      
-      document.getElementById('hand-position').textContent = this.handPosition.toFixed(3);
-      
-      // Determine command
-      const deadzoneMin = -this.deadzoneWidth / 2;
-      const deadzoneMax = this.deadzoneWidth / 2;
-      let command = 'STOP';
-      
-      // Update zone highlights
-      document.querySelectorAll('.zone').forEach(z => z.classList.remove('active'));
-      
-      if (this.fistClosed) {
-        if (this.handPosition < deadzoneMin) {
-          command = '← TURN LEFT';
-          // Camera is mirrored, so swap the zone highlights
-          document.querySelector('.zone-right').classList.add('active');
-        } else if (this.handPosition > deadzoneMax) {
-          command = 'TURN RIGHT →';
-          // Camera is mirrored, so swap the zone highlights
-          document.querySelector('.zone-left').classList.add('active');
-        } else {
-          command = '↑ FORWARD';
-        }
-      } else {
-        command = 'STOP (Open Hand)';
-      }
-      
-      document.getElementById('hand-command').textContent = command;
-      
-    } else {
-      this.handDetected = false;
-      this.fistClosed = false;
-      this.handPosition = 0;
-      
-      document.getElementById('hand-status').textContent = 'NO';
-      document.getElementById('hand-status').style.color = 'var(--text-secondary)';
-      document.getElementById('fist-status').textContent = 'NO';
-      document.getElementById('fist-status').style.color = 'var(--text-secondary)';
-      document.getElementById('hand-position').textContent = '---';
-      document.getElementById('hand-command').textContent = 'STOP';
-      
-      document.querySelectorAll('.zone').forEach(z => z.classList.remove('active'));
-    }
-  }
-  
   // Gingerbread Autonomous Mode
   toggleGingerbreadMode() {
-    // Close hand mode if open
-    if (this.cameraMode) {
-      this.toggleCameraMode();
-    }
-    
     this.gingerbreadMode = !this.gingerbreadMode;
     const overlay = document.getElementById('gingerbread-overlay');
     const btn = document.getElementById('gingerbread-mode-btn');

@@ -62,19 +62,33 @@
           <span id="status-text">CONNECTING...</span>
         </div>
       </div>
-      <div class="header-right">
+      
+      <div class="header-telemetry">
         <div class="telemetry-item">
           <span class="label">ESP32</span>
           <span class="value" id="esp32-ip-display">---</span>
         </div>
-        <button id="camera-mode-btn" class="btn-secondary">
-          📷 HAND MODE
-        </button>
+        <div class="telemetry-item">
+          <span class="label">LEFT</span>
+          <span class="value" id="left-value">0.000</span>
+        </div>
+        <div class="telemetry-item">
+          <span class="label">RIGHT</span>
+          <span class="value" id="right-value">0.000</span>
+        </div>
+        <div class="telemetry-item">
+          <span class="label">RATE</span>
+          <span class="value" id="send-rate">0 Hz</span>
+        </div>
+        <div class="telemetry-item">
+          <span class="label">RELAY</span>
+          <span class="value" id="relay-status">---</span>
+        </div>
+      </div>
+      
+      <div class="header-right">
         <button id="gingerbread-mode-btn" class="btn-secondary">
           🍪 GINGERBREAD
-        </button>
-        <button id="fullscreen-btn" class="btn-secondary">
-          <span class="fullscreen-icon">⛶</span>
         </button>
         <button id="disconnect-btn" class="btn-secondary">DISCONNECT</button>
       </div>
@@ -82,45 +96,7 @@
 
     <!-- Main Control Area -->
     <div class="control-area">
-      <!-- Left Panel: Telemetry -->
-      <div class="panel telemetry-panel">
-        <h2 class="panel-title">TELEMETRY</h2>
-        
-        <div class="telemetry-grid">
-          <div class="telemetry-card">
-            <div class="telemetry-label">LEFT MOTOR</div>
-            <div class="telemetry-value" id="left-value">0.000</div>
-            <div class="telemetry-bar">
-              <div class="telemetry-bar-fill" id="left-bar"></div>
-            </div>
-          </div>
-          
-          <div class="telemetry-card">
-            <div class="telemetry-label">RIGHT MOTOR</div>
-            <div class="telemetry-value" id="right-value">0.000</div>
-            <div class="telemetry-bar">
-              <div class="telemetry-bar-fill" id="right-bar"></div>
-            </div>
-          </div>
-          
-          <div class="telemetry-card">
-            <div class="telemetry-label">SEND RATE</div>
-            <div class="telemetry-value" id="send-rate">0 Hz</div>
-          </div>
-          
-          <div class="telemetry-card">
-            <div class="telemetry-label">PACKETS SENT</div>
-            <div class="telemetry-value" id="packet-count">0</div>
-          </div>
-          
-          <div class="telemetry-card">
-            <div class="telemetry-label">RELAY (PIN 13)</div>
-            <div class="telemetry-value" id="relay-status">---</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Center Panel: Controls -->
+      <!-- Drive Control Panel (Full Width) -->
       <div class="panel control-panel">
         <h2 class="panel-title">DRIVE CONTROL</h2>
         
@@ -151,7 +127,7 @@
               <div class="fire-btn-inner">
                 <span class="fire-icon">🔥</span>
                 <span class="fire-label">FIRE</span>
-                <span class="fire-sublabel">RELAY PIN 13</span>
+                <span class="fire-sublabel">HOLD TO ACTIVATE</span>
               </div>
               <div class="fire-glow"></div>
             </button>
@@ -167,7 +143,30 @@
         </div>
 
         <div class="keyboard-hint">
-          <span>⌨️ KEYBOARD: ↑↓←→ or WASD • SPACE = STOP • F = FIRE</span>
+          <span>⌨️ KEYBOARD: ↑↓←→ or WASD • SPACE = STOP</span>
+        </div>
+        
+        <!-- Quick Autonomous Controls -->
+        <div class="quick-autonomous">
+          <h3 class="quick-autonomous-title">🤖 AUTONOMOUS MODES</h3>
+          <div class="quick-autonomous-buttons">
+            <button id="quick-search-left" class="btn-quick-auto">
+              <span class="btn-icon">🔄</span>
+              <span class="btn-text">SEARCH LEFT</span>
+            </button>
+            <button id="quick-search-right" class="btn-quick-auto">
+              <span class="btn-icon">🔃</span>
+              <span class="btn-text">SEARCH RIGHT</span>
+            </button>
+            <button id="quick-track" class="btn-quick-auto">
+              <span class="btn-icon">🎯</span>
+              <span class="btn-text">TRACK</span>
+            </button>
+            <button id="quick-follow" class="btn-quick-auto">
+              <span class="btn-icon">👁️</span>
+              <span class="btn-text">FOLLOW</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
