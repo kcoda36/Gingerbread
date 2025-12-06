@@ -1393,6 +1393,18 @@ body {
   opacity: 0.8;
 }
 
+/* Gingerbread Fire Button */
+.gingerbread-fire {
+  margin-top: 2rem;
+  padding: 0 1.5rem;
+}
+
+.gingerbread-fire .fire-btn {
+  width: 100%;
+  max-width: 300px;
+  margin: 0 auto;
+}
+
 /* Animations */
 @keyframes zone-pulse {
   0%, 100% { background-color: rgba(0, 212, 255, 0.1); }

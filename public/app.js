@@ -58,6 +58,24 @@ class ESP32Controller {
       this.relayOff();
     });
     
+    // Gingerbread fire button - same behavior as main fire button
+    const gingerbreadFireBtn = document.getElementById('gingerbread-fire-btn');
+    gingerbreadFireBtn.addEventListener('mousedown', () => this.relayOn());
+    gingerbreadFireBtn.addEventListener('mouseup', () => this.relayOff());
+    gingerbreadFireBtn.addEventListener('mouseleave', () => this.relayOff());
+    gingerbreadFireBtn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      this.relayOn();
+    });
+    gingerbreadFireBtn.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      this.relayOff();
+    });
+    gingerbreadFireBtn.addEventListener('touchcancel', (e) => {
+      e.preventDefault();
+      this.relayOff();
+    });
+    
     document.getElementById('gingerbread-mode-btn').addEventListener('click', () => this.toggleGingerbreadMode());
     document.getElementById('close-gingerbread-btn').addEventListener('click', () => this.toggleGingerbreadMode());
     
