@@ -60,11 +60,12 @@ class AutonomousGingerbreadController:
         print(f"📷 FPS: {self.cap.get(cv2.CAP_PROP_FPS)}")
         
         # Control parameters
-        self.deadzone_radius = 0.15  # 15% deadzone radius from center (increased from 10%)
+        self.deadzone_radius = 0.15  # 15% deadzone radius from center for TRACK mode
+        self.follow_deadzone_radius = 0.075  # 7.5% deadzone for FOLLOW mode (50% smaller)
         self.min_turn_threshold = 0.15  # Minimum turn amount to actually turn (prevents jitter)
-        self.search_speed = 0.4  # Rotation speed when searching
+        self.search_speed = 0.3  # Rotation speed when searching (reduced by 25% from 0.4)
         self.follow_turn_speed = 0.35  # Rotation speed for follow mode
-        self.track_speed = 0.6  # Forward speed when tracking
+        self.track_speed = 0.6  # Forward speed when tracking (unchanged)
         self.turn_gain = 1.5  # How aggressively to turn (higher = more responsive)
         
         # State
@@ -131,8 +132,8 @@ class AutonomousGingerbreadController:
         dx = (self.smoothed_x - center_x) / center_x
         distance = abs(dx)
         
-        # If in deadzone, stop rotating (target is centered)
-        if distance <= self.deadzone_radius:
+        # Use smaller deadzone for follow mode (more precise)
+        if distance <= self.follow_deadzone_radius:
             self.stop()
             return
         
@@ -270,23 +271,30 @@ class AutonomousGingerbreadController:
         center_x = width // 2
         center_y = height // 2
         
-        # Calculate zone radii in pixels
-        deadzone_radius_px = int(width * self.deadzone_radius)
+        # Calculate zone radii in pixels (use different deadzone for FOLLOW mode)
+        if self.mode == Mode.FOLLOW:
+            deadzone_radius_px = int(width * self.follow_deadzone_radius)
+            deadzone_color = (255, 150, 0)  # Orange for follow mode
+            deadzone_label = f"FOLLOW DZ ({self.follow_deadzone_radius*100:.1f}%)"
+        else:
+            deadzone_radius_px = int(width * self.deadzone_radius)
+            deadzone_color = (0, 255, 0)  # Green for other modes
+            deadzone_label = f"DEADZONE ({self.deadzone_radius*100:.1f}%)"
         
         # Draw center crosshair (screen center)
         cv2.line(frame, (center_x - 30, center_y), (center_x + 30, center_y), (0, 255, 0), 3)
         cv2.line(frame, (center_x, center_y - 30), (center_x, center_y + 30), (0, 255, 0), 3)
         cv2.circle(frame, (center_x, center_y), 8, (0, 255, 0), -1)
         
-        # Draw deadzone circle (green - goes straight)
+        # Draw deadzone circle
         overlay = frame.copy()
-        cv2.circle(overlay, (center_x, center_y), deadzone_radius_px, (0, 255, 0), -1)
+        cv2.circle(overlay, (center_x, center_y), deadzone_radius_px, deadzone_color, -1)
         cv2.addWeighted(overlay, 0.15, frame, 0.85, 0, frame)
-        cv2.circle(frame, (center_x, center_y), deadzone_radius_px, (0, 255, 0), 3)
+        cv2.circle(frame, (center_x, center_y), deadzone_radius_px, deadzone_color, 3)
         
         # Add text label for deadzone
-        cv2.putText(frame, "DEADZONE", (center_x - 50, center_y), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        cv2.putText(frame, deadzone_label, (center_x - 80, center_y), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, deadzone_color, 2)
         
         # Draw center vertical line for reference
         cv2.line(frame, (center_x, 0), (center_x, height), (0, 255, 0), 2)
