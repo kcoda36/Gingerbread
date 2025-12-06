@@ -11,6 +11,7 @@ import time
 import argparse
 import sys
 import select
+import signal
 from dataclasses import dataclass
 from enum import Enum
 
@@ -37,6 +38,10 @@ class AutonomousGingerbreadController:
         self.esp32_ip = esp32_ip
         self.udp_port = udp_port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        
+        # Setup signal handlers for clean exit
+        signal.signal(signal.SIGTERM, self.signal_handler)
+        signal.signal(signal.SIGINT, self.signal_handler)
         
         # Camera setup
         print(f"Initializing camera {camera_index}...")
@@ -405,6 +410,11 @@ class AutonomousGingerbreadController:
         
         return frame
         
+    def signal_handler(self, signum, frame):
+        """Handle termination signals"""
+        print(f"\n⚠️  Received signal {signum} - shutting down...")
+        self.running = False
+    
     def check_stdin_command(self):
         """Check for mode change commands from stdin (non-blocking)"""
         if sys.platform == 'win32':
@@ -533,9 +543,19 @@ class AutonomousGingerbreadController:
             print("🛑 Stopping autonomous mode...")
             self.stop()
             time.sleep(0.1)
-            self.cap.release()
+            
+            # Force release resources
+            if self.cap:
+                self.cap.release()
+            
+            # Force close all windows
             cv2.destroyAllWindows()
+            cv2.waitKey(1)  # Process events to ensure windows close
+            
             print("✅ Autonomous mode stopped cleanly")
+            
+            # Force exit
+            sys.exit(0)
 
 def main():
     parser = argparse.ArgumentParser(description='Autonomous Gingerbread Tracking System')

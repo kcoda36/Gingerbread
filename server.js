@@ -116,7 +116,24 @@ function changePythonMode(mode) {
 function stopPythonAutonomous() {
   if (pythonProcess) {
     console.log('🛑 Stopping autonomous mode...');
+    
+    // Try graceful shutdown first
     pythonProcess.kill('SIGTERM');
+    
+    // Force kill after 1 second if still running
+    setTimeout(() => {
+      if (pythonProcess) {
+        console.log('⚠️  Process didn\'t stop, force killing with SIGKILL...');
+        try {
+          pythonProcess.kill('SIGKILL');
+        } catch (e) {
+          console.error('Error force killing:', e);
+        }
+        pythonProcess = null;
+        pythonRunning = false;
+      }
+    }, 1000);
+    
     pythonProcess = null;
     pythonRunning = false;
     
