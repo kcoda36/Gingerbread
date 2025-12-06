@@ -816,8 +816,11 @@ class ESP32Controller {
     } else {
       btn.classList.remove('active');
       overlay.classList.remove('active');
-      // Stop autonomous mode if running
-      this.stopAutonomous();
+      // Kill autonomous process when closing overlay
+      if (this.connected) {
+        console.log('🛑 Closing gingerbread mode - killing Python process');
+        this.send({ type: 'stop_autonomous' });
+      }
     }
   }
   
@@ -848,26 +851,15 @@ class ESP32Controller {
   }
   
   stopAutonomous() {
-    console.log('🛑 Stopping motors (STOP mode)');
+    console.log('🛑 KILLING autonomous process');
     
-    // Send STOP mode instead of killing process
-    this.send({
-      type: 'start_autonomous',
-      mode: 'stopped'
-    });
-    
-    // Visual feedback
-    this.updateAutonomousStatus('Mode: STOPPED', true);
-  }
-  
-  killAutonomous() {
-    console.log('🛑 Killing autonomous process');
+    // STOP = Kill the Python process entirely
     this.send({
       type: 'stop_autonomous'
     });
     
     // Visual feedback
-    this.updateAutonomousStatus('Process stopped', false);
+    this.updateAutonomousStatus('STOPPED - Process killed', false);
   }
   
   updateAutonomousStatus(text, isActive) {
