@@ -54,6 +54,11 @@ class AutonomousGingerbreadController:
         
         print("Camera initialized successfully")
         
+        # Debug camera settings
+        print(f"📷 Camera backend: {self.cap.getBackendName()}")
+        print(f"📷 Resolution: {int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))}")
+        print(f"📷 FPS: {self.cap.get(cv2.CAP_PROP_FPS)}")
+        
         # Control parameters
         self.deadzone_radius = 0.15  # 15% deadzone radius from center (increased from 10%)
         self.min_turn_threshold = 0.15  # Minimum turn amount to actually turn (prevents jitter)
@@ -455,14 +460,29 @@ class AutonomousGingerbreadController:
         print("💡 Mode can be changed from web UI or keyboard")
         print("=" * 60)
         
+        # Create display window BEFORE main loop
+        window_name = "🍪 Autonomous Gingerbread Tracker"
+        print(f"🖼️  Creating display window: {window_name}")
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(window_name, 800, 600)
+        print("✅ Display window created")
+        
+        frame_count = 0
+        
         try:
             while self.running:
                 # Check for mode change commands from stdin
                 self.check_stdin_command()
+                
                 ret, frame = self.cap.read()
                 if not ret:
                     print("❌ Failed to grab frame")
                     break
+                
+                # Debug output every 30 frames
+                frame_count += 1
+                if frame_count % 30 == 0:
+                    print(f"📸 Frame {frame_count}: shape={frame.shape}, dtype={frame.dtype}, range=[{frame.min()}-{frame.max()}]")
                 
                 # Detect gingerbread
                 blob = self.detect_gingerbread(frame)
@@ -512,9 +532,15 @@ class AutonomousGingerbreadController:
                     
                 # Draw overlay and display
                 display_frame = self.draw_overlay(frame.copy(), blob)
-                cv2.imshow("🍪 Autonomous Gingerbread Tracker", display_frame)
                 
-                # Check for keyboard input
+                # Debug display frame
+                if frame_count % 30 == 0:
+                    print(f"🖼️  Display frame: shape={display_frame.shape}, dtype={display_frame.dtype}")
+                
+                # Update window with frame
+                cv2.imshow(window_name, display_frame)
+                
+                # Force window refresh and check for keyboard input
                 key = cv2.waitKey(1) & 0xFF
                 if key == 27:  # ESC
                     print("🛑 ESC pressed - exiting...")
