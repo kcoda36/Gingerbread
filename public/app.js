@@ -11,6 +11,12 @@ class ESP32Controller {
     this.currentLeft = 0;
     this.currentRight = 0;
     
+    // Gamepad state
+    this.gamepad = null;
+    this.gamepadConnected = false;
+    this.gamepadDeadzone = 0.15; // Ignore small stick movements
+    this.lastFireButtonState = false;
+    
     // Gingerbread autonomous mode state
     this.gingerbreadMode = false;
     
@@ -115,6 +121,10 @@ class ESP32Controller {
     // Keyboard controls
     window.addEventListener('keydown', (e) => this.handleKeyDown(e));
     window.addEventListener('keyup', (e) => this.handleKeyUp(e));
+    
+    // Gamepad event listeners
+    window.addEventListener('gamepadconnected', (e) => this.onGamepadConnected(e));
+    window.addEventListener('gamepaddisconnected', (e) => this.onGamepadDisconnected(e));
   }
   
   connect() {
@@ -154,6 +164,7 @@ class ESP32Controller {
         this.updateStatus('connected', 'CONNECTED');
         document.getElementById('esp32-ip-display').textContent = this.esp32IP;
         this.startControlLoop();
+        this.updateGamepadStatus();
       }
       
       if (data.type === 'error') {
@@ -337,6 +348,24 @@ class ESP32Controller {
       // Left/Right
       if (this.keysDown.has('left')) turn -= 1;
       if (this.keysDown.has('right')) turn += 1;
+      
+      // Gamepad input (additive with keyboard)
+      const gamepadInput = this.processGamepadInput();
+      throttle += gamepadInput.throttle;
+      turn += gamepadInput.turn;
+      
+      // Handle gamepad fire button
+      if (gamepadInput.fire && !this.lastFireButtonState) {
+        this.relayOn();
+      } else if (!gamepadInput.fire && this.lastFireButtonState) {
+        this.relayOff();
+      }
+      this.lastFireButtonState = gamepadInput.fire;
+      
+      // Handle gamepad emergency stop
+      if (gamepadInput.stop) {
+        this.emergencyStop();
+      }
     }
     
     // Convert to tank drive (differential)
@@ -510,6 +539,89 @@ class ESP32Controller {
     if (keyMap[e.key]) {
       this.keyUp(keyMap[e.key]);
     }
+  }
+  
+  // Gamepad Support
+  onGamepadConnected(e) {
+    console.log('🎮 Gamepad connected:', e.gamepad.id);
+    this.gamepadConnected = true;
+    this.updateGamepadStatus();
+  }
+  
+  onGamepadDisconnected(e) {
+    console.log('🎮 Gamepad disconnected:', e.gamepad.id);
+    this.gamepadConnected = false;
+    this.gamepad = null;
+    this.updateGamepadStatus();
+  }
+  
+  updateGamepadStatus() {
+    const statusElement = document.getElementById('gamepad-status');
+    if (statusElement) {
+      if (this.gamepadConnected) {
+        statusElement.textContent = '🎮 CONNECTED';
+        statusElement.style.color = '#00d4ff';
+      } else {
+        statusElement.textContent = '🎮 NO GAMEPAD';
+        statusElement.style.color = '#666';
+      }
+    }
+  }
+  
+  getGamepadInput() {
+    // Get the latest gamepad state
+    const gamepads = navigator.getGamepads();
+    if (!gamepads) return null;
+    
+    // Find connected gamepad
+    for (let i = 0; i < gamepads.length; i++) {
+      if (gamepads[i] && gamepads[i].connected) {
+        this.gamepad = gamepads[i];
+        return this.gamepad;
+      }
+    }
+    return null;
+  }
+  
+  processGamepadInput() {
+    const gp = this.getGamepadInput();
+    if (!gp) return { throttle: 0, turn: 0, fire: false, stop: false };
+    
+    // PS5 Controller Mapping:
+    // Axes: 0=Left X, 1=Left Y, 2=Right X, 3=Right Y
+    // Buttons: 0=X, 1=O, 2=Square, 3=Triangle, 
+    //          4=L1, 5=R1, 6=L2, 7=R2,
+    //          8=Share, 9=Options, 10=L3, 11=R3,
+    //          12=D-Up, 13=D-Down, 14=D-Left, 15=D-Right
+    
+    const leftStickX = gp.axes[0] || 0;
+    const leftStickY = gp.axes[1] || 0;
+    const rightTrigger = gp.buttons[7] ? gp.buttons[7].value : 0; // R2
+    const optionsButton = gp.buttons[9] ? gp.buttons[9].pressed : false;
+    
+    // Apply deadzone
+    const applyDeadzone = (value) => {
+      return Math.abs(value) < this.gamepadDeadzone ? 0 : value;
+    };
+    
+    let throttle = -applyDeadzone(leftStickY); // Inverted (up is negative)
+    let turn = applyDeadzone(leftStickX);
+    
+    // Handle D-pad as alternative control
+    if (gp.buttons[12] && gp.buttons[12].pressed) throttle = 1;  // D-Up
+    if (gp.buttons[13] && gp.buttons[13].pressed) throttle = -1; // D-Down
+    if (gp.buttons[14] && gp.buttons[14].pressed) turn = -1;     // D-Left
+    if (gp.buttons[15] && gp.buttons[15].pressed) turn = 1;      // D-Right
+    
+    // Fire button (R2 trigger)
+    const fire = rightTrigger > 0.5;
+    
+    return {
+      throttle,
+      turn,
+      fire,
+      stop: optionsButton
+    };
   }
   
   // Gingerbread Autonomous Mode
